@@ -227,7 +227,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   }.cacheable(),
   
   _notifyThemeDidChange: function() {
-    console.error("NOT");
     var len, idx, childViews = this.get("childViews");
     len = childViews.length;
     for (idx = 0; idx < len; idx++){

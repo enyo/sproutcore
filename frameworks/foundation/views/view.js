@@ -214,7 +214,7 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
       }
     }
     
-    if (this._theme){
+    if (!SC.none(this._theme)){
       ret = this._theme; 
     } else {
       var parent = this.get("parentView");
@@ -224,9 +224,10 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     }
     
     return ret;
-  }.property("parentView").cacheable(),
+  }.cacheable(),
   
   _notifyThemeDidChange: function() {
+    console.error("NOT");
     var len, idx, childViews = this.get("childViews");
     len = childViews.length;
     for (idx = 0; idx < len; idx++){
@@ -573,6 +574,8 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   parentViewDidChange: function() {
     this.recomputeIsVisibleInWindow() ;
+    
+    this.notifyPropertyChange("theme");
     
     this.set('layerLocationNeedsUpdate', YES) ;
     this.invokeOnce(this.updateLayerLocationIfNeeded) ;

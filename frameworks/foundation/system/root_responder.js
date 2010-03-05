@@ -431,56 +431,98 @@ SC.RootResponder = SC.Object.extend({
     this.listenFor('touchstart touchmove touchend touchcancel'.w(), document);
   },
   
+  // a set of touch events mapped to views they are currently touching
+  // views receive touchStart, touchEnd, and touchDragged. 
+  // touchMoved, Entered, and Exited are impossible without some extra fancy stuff (touch event targets
+  // are not whatever is under the event, but whatever was first touched)
+  // currently, there is no support for touchEntered/Exited
+  touches: {},
+  
   touchstart: function(evt) {
     try {
-      var view = this.targetViewForEvent(evt) ;
-      view = this._touchView = this.sendEvent('touchStart', evt, view) ;
-      if (view && view.respondsTo('touchDragged')) this._touchCanDrag = YES ;
+      var view, touch, idx, touches = evt.changedTouches, len = touches.length,
+          activeTouches = this.touches;
+      for (idx = 0; idx < len; idx++) {
+        // get the touch event
+        touch = touches[idx];
+        
+        // make sure it is mapped
+        if (!activeTouches[touch.identifier]) {
+          view = this.targetViewForEvent(touch);
+          view = this.sendEvent('touchStart', evt, view);
+          
+          // and, if there is a view that responded, let's register it.
+          activeTouches[touch.identifier] = {
+            "view": view,
+            "canDrag": view ?  view.respondsTo('touchDragged') : null,
+            lastX: touch.pageX,
+            lastY: touch.pageY
+          };
+          
+        }
+      }
     } catch (e) {
       console.log('Exception during touchStart: %@'.fmt(e)) ;
       this._touchView = null ;
       this._touchCanDrag = NO ;
       return NO ;
     }
-    return view ? evt.hasCustomEventHandling : YES;
+    return YES;
   },
-
+  
   touchmove: function(evt) {
     SC.RunLoop.begin();
     try {
-      var lh = this._lastHovered || [] ;
-      var nh = [] ;
-      var view = this.targetViewForEvent(evt) ;
+      var view, touch, idx, touches = evt.touches, len = touches.length,
+          activeTouches = this.touches, touchEntry, c, changes = {};
+      
+      // we create a touches and changedTouches collection for each view.
+      for (idx = 0; idx < len; idx++) {
+        // get the touch event
+        touch = touches[idx];
         
-      // work up the view chain.  Notify of touchEntered and
-      // touchMoved if implemented.
-      while(view && (view !== this)) {
-        if (lh.indexOf(view) !== -1) {
-          view.tryToPerform('touchMoved', evt);
-          nh.push(view) ;
+        // make sure it is mapped
+        if (activeTouches[touch.identifier]) {
+          touchEntry = activeTouches[touch.identifier];
+          view = touchEntry.view;
+          if (!view) continue;
+          
+          // get change entry for view
+          c = changes[SC.hashFor(view)];
+          if (!c) {
+            c = changes[SC.hashFor(view)] = {
+              "target": view,
+              "changedTouches": [],
+              "touches": []
+            };
+          }
+          
+          // add touch to the touches list
+          c.touches.push(touch);
+          
+          // figure out if the touch has changed
+          if (touchEntry.lastX !== touch.pageX || touchEntry.lastY !== touch.pageY) {
+            // it has, so add it to the changedTouches
+            c.changedTouches.push(touch);
+            touchEntry.lastX = touch.pageX;
+            touchEntry.lastY = touch.pageY;
+          }
         } else {
-          view.tryToPerform('touchEntered', evt);
-          nh.push(view) ;
+          console.log("Got touchmove event for a touch we don't know about... very odd.");
         }
+      }
+      
+    
+      for (idx in changes) {
+        c = changes[idx];
         
-        view = view.get('nextResponder');
+        // adjust event
+        evt.viewTouches = c.touches;
+        evt.viewChangedTouches = c.changedTouches;
+        this.sendEvent("touchMoved", evt, c.target);
+        c.target.tryToPerform('touchDragged', evt);
       }
       
-      // now find those views last hovered over that were no longer found 
-      // in this chain and notify of mouseExited.
-      for(var loc=0; loc < lh.length; loc++) {
-        view = lh[loc] ;
-        var exited = view.respondsTo('touchExited') ;
-        if (exited && !(nh.indexOf(view) !== -1)) {
-          view.tryToPerform('touchExited',evt);
-        }
-      }
-      
-      this._lastHovered = nh; 
-      
-      // also, if a touchView exists, call the touchDragged action, if 
-      // it exists.
-      if (this._touchView) this._touchView.tryToPerform('touchDragged', evt);
     } catch (e) {
       console.log('Exception during touchMove: %@'.fmt(e)) ;
     }
@@ -490,25 +532,76 @@ SC.RootResponder = SC.Object.extend({
   
   touchend: function(evt) {
     try {
-      evt.cancel = NO ;
-      var handler = null, view = this._touchView ;
+      evt.cancel = NO;
       
-      // attempt the call only if there's a target.
-      // don't want a touch end going to anyone unless they handled the 
-      // touch start...
-      if (view) handler = this.sendEvent('touchEnd', evt, view) ;
+      var view, touch, idx, touches = evt.changedTouches, len = touches.length,
+          activeTouches = this.touches, touchEntry, c, changes = {};
       
-      // try whoever's under the mouse if we haven't handle the mouse up yet
-      if (!handler) view = this.targetViewForEvent(evt) ;
+      /// FIRST PASS: CHANGED TOUCHES
+      for (idx = 0; idx < len; idx++) {
+        // get the touch event
+        touch = touches[idx];
+        
+        // make sure it is mapped
+        if (activeTouches[touch.identifier]) {
+          touchEntry = activeTouches[touch.identifier];
+          view = touchEntry.view;
+          if (!view) continue;
+          
+          // get change entry for view
+          c = changes[SC.hashFor(view)];
+          if (!c) {
+            c = changes[SC.hashFor(view)] = {
+              "target": view,
+              "changedTouches": [],
+              "touches": []
+            };
+          }
+          
+          c.changedTouches.push(touch);
+          delete activeTouches[touch.identifier];
+        } else {
+          console.log("Got touchmove event for a touch we don't know about... very odd.");
+        }
+      }
       
-      // cleanup
-      this._touchCanDrag = NO; this._touchView = null ;
+      
+      /// SECOND PASS: NORMAL TOUCHES
+      touches = evt.touches; len = touches.length;
+      for (idx = 0; idx < len; idx++) {
+        // get the touch event
+        touch = touches[idx];
+        
+        // make sure it is mapped
+        if (activeTouches[touch.identifier]) {
+          touchEntry = activeTouches[touch.identifier];
+          view = touchEntry.view;
+          if (!view) continue;
+          
+          // get change entry for view
+          c = changes[SC.hashFor(view)];
+          if (c) c.touches.push(touch);
+        } else {
+          console.log("Got touchmove event for a touch we don't know about... very odd.");
+        }
+      }
+      
+      
+      for (idx in changes) {
+        c = changes[idx];
+        
+        // adjust event
+        evt.viewTouches = c.touches;
+        evt.viewChangedTouches = c.changedTouches;
+        this.sendEvent("touchEnd", evt, c.target);
+        c.target.tryToPerform('touchEnd', evt);
+      }
+      
     } catch (e) {
       console.log('Exception during touchEnd: %@'.fmt(e)) ;
-      this._touchCanDrag = NO; this._touchView = null ;
       return NO ;
     }
-    return (handler) ? evt.hasCustomEventHandling : YES ;
+    return YES ;
   },
   
   /** @private

@@ -433,12 +433,13 @@ SC.RootResponder = SC.Object.extend({
   
   // a set of touch events mapped to views they are currently touching
   // views receive touchStart, touchEnd, and touchDragged. 
-  // touchMoved, Entered, and Exited are impossible without some extra fancy stuff (touch event targets
+  // touchEntered and Exited are impossible without some extra fancy stuff (touch event targets
   // are not whatever is under the event, but whatever was first touched)
   // currently, there is no support for touchEntered/Exited
   touches: {},
   
   touchstart: function(evt) {
+    SC.RunLoop.begin();
     try {
       var view, touch, idx, touches = evt.changedTouches, len = touches.length,
           activeTouches = this.touches;
@@ -446,27 +447,36 @@ SC.RootResponder = SC.Object.extend({
         // get the touch event
         touch = touches[idx];
         
+        // some limited compatibility with touch events
+        evt.pageX = touch.pageX;
+        evt.pageY = touch.pageY;
+        evt.clientX = touch.clientX;
+        evt.clientY = touch.clientY;
+        evt.screenX = touch.screenX;
+        evt.screenY = touch.screenY;
+        
         // make sure it is mapped
-        if (!activeTouches[touch.identifier]) {
-          view = this.targetViewForEvent(touch);
-          view = this.sendEvent('touchStart', evt, view);
-          
-          // and, if there is a view that responded, let's register it.
-          activeTouches[touch.identifier] = {
-            "view": view,
-            "canDrag": view ?  view.respondsTo('touchDragged') : null,
-            lastX: touch.pageX,
-            lastY: touch.pageY
-          };
-          
+        view = this.targetViewForEvent(touch);
+        view = this.sendEvent('touchStart', evt, view);
+        if (view && !view._rr_isTouching) {
+          view._rr_isTouching = YES;
+          view.tryToPerform("firstTouchStart", evt);
         }
+        
+        // and, if there is a view that responded, let's register it.
+        activeTouches[touch.identifier] = {
+          "view": view,
+          "canDrag": view ?  view.respondsTo('touchDragged') : null,
+          lastX: touch.pageX,
+          lastY: touch.pageY
+        };
       }
     } catch (e) {
+      SC.RunLoop.end();
       console.log('Exception during touchStart: %@'.fmt(e)) ;
-      this._touchView = null ;
-      this._touchCanDrag = NO ;
       return NO ;
     }
+    SC.RunLoop.end();
     return YES;
   },
   
@@ -519,6 +529,17 @@ SC.RootResponder = SC.Object.extend({
         // adjust event
         evt.viewTouches = c.touches;
         evt.viewChangedTouches = c.changedTouches;
+        
+        // some limited compatibility with mouse events
+        touch = c.touches[0];
+        evt.pageX = touch.pageX;
+        evt.pageY = touch.pageY;
+        evt.clientX = touch.clientX;
+        evt.clientY = touch.clientY;
+        evt.screenX = touch.screenX;
+        evt.screenY = touch.screenY;
+        
+        // send
         this.sendEvent("touchMoved", evt, c.target);
         c.target.tryToPerform('touchDragged', evt);
       }
@@ -531,6 +552,7 @@ SC.RootResponder = SC.Object.extend({
   },
   
   touchend: function(evt) {
+    SC.RunLoop.begin();
     try {
       evt.cancel = NO;
       
@@ -593,14 +615,31 @@ SC.RootResponder = SC.Object.extend({
         // adjust event
         evt.viewTouches = c.touches;
         evt.viewChangedTouches = c.changedTouches;
+        
+        touch = c.changedTouches[0];
+        
+        // some limited compatibility with mouse events
+        evt.pageX = touch.pageX;
+        evt.pageY = touch.pageY;
+        evt.clientX = touch.clientX;
+        evt.clientY = touch.clientY;
+        evt.screenX = touch.screenX;
+        evt.screenY = touch.screenY;
+        
+        // send event
         this.sendEvent("touchEnd", evt, c.target);
-        c.target.tryToPerform('touchEnd', evt);
+        if (evt.viewTouches.length === 0 && c.target && c.target._rr_isTouching) {
+          view._rr_isTouching = NO;
+          view.tryToPerform("lastTouchEnd", evt);
+        }
       }
       
     } catch (e) {
       console.log('Exception during touchEnd: %@'.fmt(e)) ;
+      SC.RunLoop.end();
       return NO ;
     }
+    SC.RunLoop.end();
     return YES ;
   },
   

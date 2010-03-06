@@ -454,14 +454,21 @@ SC.RootResponder = SC.Object.extend({
         evt.clientY = touch.clientY;
         evt.screenX = touch.screenX;
         evt.screenY = touch.screenY;
+        evt.target = touch.target;
         
         // make sure it is mapped
         view = this.targetViewForEvent(touch);
-        view = this.sendEvent('touchStart', evt, view);
+        
+        // determine if it was first touch
         if (view && !view._rr_isTouching) {
           view._rr_isTouching = YES;
-          view.tryToPerform("firstTouchStart", evt);
+          evt.isFirstTouch = YES;
         }
+        view = this.sendEvent('touchStart', evt, view);
+        
+        // reset.
+        evt.isFirstTouch = NO;
+        evt.target = null;
         
         // and, if there is a view that responded, let's register it.
         activeTouches[touch.identifier] = {
@@ -626,12 +633,17 @@ SC.RootResponder = SC.Object.extend({
         evt.screenX = touch.screenX;
         evt.screenY = touch.screenY;
         
-        // send event
-        this.sendEvent("touchEnd", evt, c.target);
+        // determine if it is the last touch
         if (evt.viewTouches.length === 0 && c.target && c.target._rr_isTouching) {
           view._rr_isTouching = NO;
-          view.tryToPerform("lastTouchEnd", evt);
+          evt.isLastTouch = YES;
         }
+        
+        // send event
+        this.sendEvent("touchEnd", evt, c.target);
+        
+        // reset last touch
+        evt.isLastTouch = NO;
       }
       
     } catch (e) {

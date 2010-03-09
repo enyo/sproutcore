@@ -461,7 +461,7 @@ SC.RootResponder = SC.Object.extend({
         
         // determine if it was first touch
         view = this.sendEvent('touchStart', evt, view);
-        view.set("hasTouch", YES);
+        if (view) view.set("hasTouch", YES);
         
         // reset.
         evt.target = null;

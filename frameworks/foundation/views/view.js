@@ -90,7 +90,7 @@ SC.TABBING_ONLY_INSIDE_DOCUMENT = YES;
   This will enable touch events to be routed into mouse events. 
   It is enabled by default.
 */
-SC.ROUTE_TOUCH = YES;
+SC.ROUTE_TOUCH = NO;
 
 
 /** @private - custom array used for child views */
@@ -152,7 +152,7 @@ SC.EMPTY_CHILD_VIEWS_ARRAY.needsClone = YES;
 SC.View = SC.Responder.extend(SC.DelegateSupport,
 /** @scope SC.View.prototype */ {
   
-  concatenatedProperties: 'outlets displayProperties layoutProperties classNames renderMixin didCreateLayerMixin willDestroyLayerMixin'.w(),
+  concatenatedProperties: 'outlets displayProperties layoutProperties classNames renderMixin didCreateLayerMixin willDestroyLayerMixin createRendererMixin updateRendererMixin'.w(),
   
   /** 
     The current pane. 
@@ -198,7 +198,64 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   backgroundColor: null,
   
-  routeTouch: YES,
+  // ..........................................................
+  // THEME SUPPORT
+  // 
+  
+  _last_theme: null, // used to determine if theme has changed since last time the property was evaluated.
+  themeName: false,
+  
+  _themeProperty: function(key, value) {
+    // if it is a string, set theme name
+    if (SC.typeOf(value) === SC.T_STRING) {
+      this.set("themeName", value);
+    }
+    
+    // find theme, if possible
+    if (this.get("themeName")) {
+      var theme = SC.Theme.find(this.get("themeName"));
+      if (theme) {
+        return theme;
+      }
+    }
+    
+    // otherwise, return parent's theme if possible
+    var parent = this.get("parentView");
+    if (parent) {
+      return parent.get("theme");
+    }
+
+    return null;
+  }.property().cacheable(),
+  
+  _notifyThemeDidChange: function() {
+    var len, idx, childViews = this.get("childViews");
+    len = childViews.length;
+    for (idx = 0; idx < len; idx++){
+      childViews[idx].notifyPropertyChange("theme");
+    }
+  },
+  
+  /**
+    The current theme. You may only set this to a string, and during runtime, the value
+    (from get()) will always be a theme object or null.
+  */
+  theme: null,
+  
+  /**
+    Detects when the theme changes. Replaces the layer if necessary.
+  */
+  themeDidChange: function() {
+    var theme = this.get("theme");
+    if (theme === this._last_theme) return;
+    this._last_theme = theme;
+    
+    // replace the layer
+    if (this.get("layer") && this._hasCreatedChildViews) this.replaceLayer();
+    
+    // notify child views
+    if (this._hasCreatedChildViews) this._notifyThemeDidChange();
+  }.observes("theme"),
   
   // ..........................................................
   // IS ENABLED SUPPORT
@@ -233,6 +290,35 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     if (ret && (pv = this.get('parentView'))) ret = pv.get('isEnabledInPane');
     return ret ;
   }.property('parentView', 'isEnabled'),
+  
+  /**
+    Observer that resigns firstResponder if the view is Disabled and is first
+    responder. This will avoid cases like disabled view with focus rings.
+  */
+  isEnabledObserver: function(){
+    if(!this.get('isEnabled') && this.get('isFirstResponder')){
+      this.resignFirstResponder();
+    } 
+  }.observes('isEnabled'),
+  
+  // ..........................................................
+  // MULTITOUCH SUPPORT
+  //
+  /**
+    Set to YES if you want to receive touch events for each distinct touch (rather than only
+    the first touch start and last touch end).
+  */
+  acceptsMultitouch: NO,
+  
+  /**
+    Is YES if the view is currently being touched. NO otherwise.
+  */
+  hasTouch: NO,
+  
+  /**
+    Whether to route touch events to mouse events (defaults to YES)
+  */
+  routeTouch: YES,
   
   // ..........................................................
   // IS VISIBLE IN WINDOW SUPPORT
@@ -318,7 +404,9 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
       
       // if we were firstResponder, resign firstResponder also if no longer
       // visible.
-      if (!cur && this.get('isFirstResponder')) this.resignFirstResponder();
+      if (!cur && this.get('isFirstResponder')) {
+        this.resignFirstResponder();
+      }
       
     // }
     return this ;
@@ -399,7 +487,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     if (view.parentView !== this) {
       throw "%@.removeChild(%@) must belong to parent".fmt(this,view);
     }
-    
     // notify views
     if (view.willRemoveFromParent) view.willRemoveFromParent() ;
     if (this.willRemoveChild) this.willRemoveChild(view) ;
@@ -518,6 +605,8 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   parentViewDidChange: function() {
     this.recomputeIsVisibleInWindow() ;
+    
+    this.notifyPropertyChange("theme");
     
     this.set('layerLocationNeedsUpdate', YES) ;
     this.invokeOnce(this.updateLayerLocationIfNeeded) ;
@@ -686,6 +775,20 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   },
   
   /**
+    Returns YES if the receiver is a subview of a given view or if it’s 
+    identical to that view. Otherwise, it returns NO.
+    
+    @property {SC.View} view
+  */
+  isDescendantOf: function(view) {
+    var parentView = this.get('parentView');
+    
+    if(this===view) return YES;
+    else if(parentView) return parentView.isDescendantOf(view);
+    else return NO;
+  },
+  
+  /**
     This method is invoked whenever a display property changes.  It will set 
     the layerNeedsUpdate method to YES.  If you need to perform additional
     setup whenever the display changes, you can override this method as well.
@@ -767,23 +870,48 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     do not want your render() method called when updating a layer, then you
     should override this method instead.
     
+    @param optionalContext provided only for backwards-compatibility.
+    
     @returns {SC.View} receiver 
   */
-  updateLayer: function() {
-    var context = this.renderContext(this.get('layer')) ;
-    this.prepareContext(context, NO) ;
-    context.update() ;
-    if (context._innerHTMLReplaced) {
-      var pane = this.get('pane');
-      if(pane && pane.get('isPaneAttached')) {
-        this._notifyDidAppendToDocument();
+  updateLayer: function(optionalContext) {
+    var mixins, idx, len, renderer;
+    this.updateViewSettings();
+    
+    if (renderer = this.renderer) {
+      this.updateRenderer(renderer); // renderers always update.
+      if (mixins = this.updateRendererMixin) {
+        len = mixins.length;
+        for (idx = 0; idx < len; idx++) mixins[idx].call(this, renderer);
       }
     }
+    
+    // Now, update using renderer if possible; render() otherwise
+    if (!this._useRenderFirst && this.createRenderer) {
+      if (renderer) renderer.update();
+    } else {
+      var context = optionalContext || this.renderContext(this.get('layer')) ;
+      this.render(context, NO) ;
+      if (mixins = this.renderMixin) {
+        len = mixins.length;
+        for(idx=0; idx<len; ++idx) mixins[idx].call(this, context, NO) ;
+      }
+      
+      context.update() ;
+      if (context._innerHTMLReplaced) {
+        var pane = this.get('pane');
+        if(pane && pane.get('isPaneAttached')) {
+          this._notifyDidAppendToDocument();
+        }
+      }
+    }
+    
     if (this.didUpdateLayer) this.didUpdateLayer(); // call to update DOM
     if(this.designer && this.designer.viewDidUpdateLayer) {
       this.designer.viewDidUpdateLayer(); //let the designer know
     }
     return this ;
+    
   },
   
   /**
@@ -815,7 +943,7 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     var context = this.renderContext(this.get('tagName')) ;
     
     // now prepare the content like normal.
-    this.prepareContext(context, YES) ;
+    this.renderToContext(context) ;
     this.set('layer', context.element()) ;
     
     // now notify the view and its child views..
@@ -829,7 +957,12 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     invokes the same on all child views.
   */
   _notifyDidCreateLayer: function() {
+    // notify, not just the view, but also the view renderers
+    this.notifyPropertyChange("layer");
+    if (this.renderer) this.renderer.attachLayer(this);
     if (this.didCreateLayer) this.didCreateLayer() ;
+    
+    // and notify others
     var mixins = this.didCreateLayerMixin, len, idx,
         childViews = this.get('childViews');
     if (mixins) {
@@ -868,6 +1001,13 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
       // Now notify the view and its child views.  It will also set the
       // layer property to null.
       this._notifyWillDestroyLayer() ;
+      
+      // tell the renderer
+      if (this.renderer) {
+        this.renderer.detachLayer();
+        this.renderer.destroy();
+        this.renderer = null;
+      }
       
       // do final cleanup
       if (layer.parentNode) layer.parentNode.removeChild(layer) ;
@@ -908,52 +1048,179 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   },
   
   /**
+    @private (semi)
+    Returns the layer. Meant only for use from renderers and such—this is a layer provider function.
+  */
+  isLayerProvider: YES,
+  getLayer: function() {
+    return this.get("layer");
+  },
+  
+  /**
+    @private
+    
+    Renders to a context.
+    Rendering only happens for the initial rendering. Further updates happen in updateLayer,
+    and are not done to contexts, but to layers.
+    
+    Both renderToContext and updateLayer will call render(context, firstTime) as needed
+    to maintain backwards compatibility, but prefer calling createRenderer.
+    
+    Note: You should not generally override nor directly call this method. This method is only
+    called by createLayer to set up the layer initially, and by renderChildViews, to write to
+    a context.
+  */
+  renderToContext: function(context) {
+    var mixins, idx, len;
+    
+    this.beginPropertyChanges() ;
+    this.set('layerNeedsUpdate', NO) ;
+    
+    this.renderViewSettings(context);
+    
+    /* Now, the actual rendering, which will use a renderer if possible */
+    // even if we don't use the renderer to update, we must make sure we create it if there is one
+    // because inheriting views will build on top of the renderer (even if they don't know it)
+    if (this.createRenderer) {
+      // create if needed
+      var theme = this.get("theme"); // renderers need a theme
+      if (!this.renderer && theme) {
+        this.renderer = this.createRenderer(theme);
+        
+        // the renderer was not necessarily successfully created.
+        if (this.renderer) {
+          this.renderer.contentProvider = this; // set renderer's content provider to this (it will call renderContent, etc. as needed)
+          if (mixins = this.createRendererMixin) {
+            len = mixins.length;
+            for (idx = 0; idx < len; idx++) mixins[idx].call(this, theme);
+          }
+        }
+      }
+      
+      // update!
+      if (this.renderer){
+        this.updateRenderer(this.renderer);
+        if (mixins = this.updateRendererMixin) {
+          len = mixins.length;
+          for (idx = 0; idx < len; idx++) mixins[idx].call(this, this.renderer);
+        }
+      }
+    }
+    
+    if (!this._useRenderFirst && this.createRenderer) {
+      if (this.renderer) this.renderer.render(context);
+    } else {
+      this.render(context, YES);
+      if (mixins = this.renderMixin) {
+        len = mixins.length;
+        for(idx=0; idx<len; ++idx) mixins[idx].call(this, context, YES) ;
+      }
+    }
+    
+    this.endPropertyChanges() ;
+  },
+  
+  /**
+    @private
+    Renders view settings (class names and id, for instance) to the context.
+  */
+  //TODO consider moving into a "view renderer"
+  renderViewSettings: function(context) {
+    // first, render view stuff.
+    var layerId, bgcolor, cursor, classArray=[], mixins, len, idx;
+
+    // do some initial setup only needed at create time.
+    layerId = this.layerId ? this.get('layerId') : SC.guidFor(this) ;
+    context.id(layerId).classNames(this.get('classNames'), YES) ;
+    
+    // VIEW LAYOUT RENDERER, ANYONE?
+    this.renderLayout(context, YES) ;
+
+    // do some standard setup...
+    if (this.get('isTextSelectable')) classArray.push('allow-select') ;
+    if (!this.get('isEnabled')) classArray.push('disabled') ;
+    if (!this.get('isVisible')) classArray.push('hidden') ;
+    if (this.get('isFirstResponder')) classArray.push('focus');
+    if (this.get('hasStaticLayout') && this.get('useStaticLayout')) classArray.push('sc-static-layout');
+
+    bgcolor = this.get('backgroundColor');
+    if (bgcolor) context.addStyle('backgroundColor', bgcolor);
+
+    cursor = this.get('cursor') ;
+    if (cursor) classArray.push(cursor.get('className')) ;
+    
+    if (this.get("theme")) {
+      classArray = classArray.concat(this.get("theme").classNames);
+    }
+
+    context.addClass(classArray);
+  },
+  
+  /**
+    @private
+    Updates view settings on the context (including class names).
+  */
+  updateViewSettings: function() {
+    var classNames = this.get("classNames"), mixins, len, idx, 
+        layerId, bgcolor, cursor, classSet = {};
+    
+    var q = this.$();
+    q.attr("class", "");
+
+    // do some standard setup...
+    // add view class names
+    len = classNames.length;
+    for (idx = 0; idx < len; idx++) {
+      classSet[classNames[idx]] = YES;
+    }
+    
+    if (this.get("theme")) {
+      classNames = this.get("theme").classNames;
+      len = classNames.length;
+      for (idx = 0; idx < len; idx++) {
+        classSet[classNames[idx]] = YES;
+      }
+    }
+    
+    // add special class names
+    if (this.get('isTextSelectable')) classSet["allow-select"] = YES;
+    if (!this.get('isEnabled')) classSet["disabled"] = YES;
+    if (!this.get('isVisible')) classSet["hidden"] = YES;
+    if (this.get('isFirstResponder')) classSet["focus"] = YES;
+    if (this.get('hasStaticLayout') && this.get('useStaticLayout')) classSet["sc-static-layout"] = YES;
+    
+    bgcolor = this.get('backgroundColor');
+    if (bgcolor) q.css('backgroundColor', bgcolor);
+
+    cursor = this.get('cursor') ;
+    if (cursor) classSet[cursor.get('className')] = YES;
+
+    q.setClass(classSet);
+  },
+  
+  /**
+  @private
+  
     Invoked by createLayer() and updateLayer() to actually render a context.
     This method calls the render() method on your view along with any 
     renderMixin() methods supplied by mixins you might have added.
     
-    You should not override this method directly.  However, you might call
-    this method if you choose to override updateLayer() or createLayer().
+    You should not override this method directly. Nor should you call it. It is OLD.
     
     @param {SC.RenderContext} context the render context
     @param {Boolean} firstTime YES if this is creating a layer
     @returns {void}
   */
   prepareContext: function(context, firstTime) {
-    var mixins, len, idx, layerId, bgcolor, cursor;
-  
-    // do some initial setup only needed at create time.
+    // eventually, firstTime will be removed because it is ugly.
+    // for now, we will sense whether we are doing things the ugly way or not.
+    // if ugly, we will allow updates through.
+    if (SC.none(firstTime)) firstTime = YES; // the GOOD code path :)
     if (firstTime) {
-      // TODO: seems like things will break later if SC.guidFor(this) is used
-  
-      layerId = this.layerId ? this.get('layerId') : SC.guidFor(this) ;
-      context.id(layerId).classNames(this.get('classNames'), YES) ;
-      this.renderLayout(context, firstTime) ;
-    }else{
-      context.resetClassNames();
-      context.classNames(this.get('classNames'), YES);  
+      this.renderToContext(context);
+    } else {
+      this.updateLayer(context);
     }
-  
-    // do some standard setup...
-    if (this.get('isTextSelectable')) context.addClass('allow-select') ;
-    if (!this.get('isEnabled')) context.addClass('disabled') ;
-    if (!this.get('isVisible')) context.addClass('hidden') ;
-    if (this.get('isFirstResponder')) context.addClass('focus');
-  
-    bgcolor = this.get('backgroundColor');
-    if (bgcolor) context.addStyle('backgroundColor', bgcolor);
-  
-    cursor = this.get('cursor') ;
-    if (cursor) context.addClass(cursor.get('className')) ;
-  
-    this.beginPropertyChanges() ;
-    this.set('layerNeedsUpdate', NO) ;
-    this.render(context, firstTime) ;
-    if (mixins = this.renderMixin) {
-      len = mixins.length;
-      for(idx=0; idx<len; ++idx) mixins[idx].call(this, context, firstTime) ;
-    }
-    this.endPropertyChanges() ;
   },
   
   /**
@@ -968,15 +1235,44 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     @test in render
   */
   renderChildViews: function(context, firstTime) {
+    if (firstTime) {
+      this.renderContent(context);
+    } else {
+      this.updateContent();
+    }
+    return context;
+  },
+  
+  /**
+    @private
+    Views are content suppliers for renderers. That is, views pass themselves to renderers
+    for renderers' "content" properties. Content providers have two functions: renderContent and updateContent.
+    This is the first of those.
+  */
+  renderContent: function(context) {
     var cv = this.get('childViews'), len = cv.length, idx, view ;
     for (idx=0; idx<len; ++idx) {
       view = cv[idx] ;
       if (!view) continue;
       context = context.begin(view.get('tagName')) ;
-      view.prepareContext(context, firstTime) ;
+      view.renderToContext(context);
       context = context.end() ;
     }
-    return context ;  
+  },
+  
+  /**
+    @private
+    Views are content suppliers for renderers. That is, views pass themselves to renderers
+    for renderers' "content" properties. Content providers have two functions: renderContent and updateContent.
+    This is the first of those.
+  */
+  updateContent: function() {
+    var cv = this.get('childViews'), len = cv.length, idx, view ;
+    for (idx=0; idx<len; ++idx) {
+      view = cv[idx] ;
+      if (!view) continue;
+      view.updateLayer();
+    }
   },
   
   /**
@@ -998,10 +1294,18 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     @param {SC.RenderContext} context the render context
     @param {Boolean} firstTime YES if this is creating a layer
     @returns {void}
-  */
+  */   
   render: function(context, firstTime) {
-    if (firstTime) this.renderChildViews(context, firstTime) ;
-  },
+      if (this.createRenderer) {
+        if (firstTime) { 
+          if (this.renderer) this.renderer.render(context);
+        } else {
+          if (this.renderer) this.renderer.update();
+        }
+      } else {
+        if (firstTime) this.renderChildViews(context, firstTime);
+      }
+    },
   
   
   /** @private - 
@@ -1329,16 +1633,19 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     @type SC.View
   */
   nextValidKeyView: function() {
-    var seen = [],
-        rootView = this.pane(), ret; 
-    ret = rootView._computeNextValidKeyView(this, seen);
-    if(SC.TABBING_ONLY_IN_DOCUMENT && SC.ret === null){
+    var seen = [], 
+        rootView = this.pane(), ret = this.get('nextKeyView');
+    
+    if(!ret) ret = rootView._computeNextValidKeyView(this, seen);
+    
+    if(SC.TABBING_ONLY_INSIDE_DOCUMENT && !ret) {
       ret = rootView._computeNextValidKeyView(rootView, seen);
     }
+    
     return ret ;
   }.property('nextKeyView'),
   
-  _computeNextValidKeyView: function(currentView, seen) {  
+  _computeNextValidKeyView: function(currentView, seen) {
     var ret = this.get('nextKeyView'),
         children, i, childLen, child;
     if(this !== currentView && seen.indexOf(currentView)!=-1 && 
@@ -1350,7 +1657,7 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     // find next sibling
     if (!ret) {
       children = this.get('childViews');
-      for(i=0, childLen= children.length; i<childLen; i++){
+      for(i=0, childLen = children.length; i<childLen; i++){
         child = children[i];
         if(child.get('isVisibleInWindow') && child.get('isVisible')){
           ret = child._computeNextValidKeyView(currentView, seen);
@@ -1378,8 +1685,8 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   previousValidKeyView: function() {
     var seen = [],
-        rootView = this.pane(), ret; 
-    ret = rootView._computePreviousValidKeyView(this, seen);
+        rootView = this.pane(), ret = this.get('previousKeyView'); 
+    if(!ret) ret = rootView._computePreviousValidKeyView(this, seen);
     return ret ;
   }.property('previousKeyView'),
   
@@ -1423,6 +1730,28 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     
     sc_super() ;
     
+    // set up theme
+    var theme = this.theme;
+    this.theme = this._themeProperty;
+    this.set("theme", theme);
+    
+    // find render path (to be removed in SC 2.0?)
+    var renderAge = -1, rendererAge = -1, currentAge = 0, c = this.constructor;
+    while (c && c.prototype.render) {
+      if (renderAge < 0 && c.prototype.render !== this.render) renderAge = currentAge;
+      if (rendererAge < 0 && c.prototype.createRenderer !== this.createRenderer) rendererAge = currentAge;
+      if (rendererAge >= 0 && renderAge >= 0) break;
+      currentAge = currentAge + 1;
+      c = c.superclass;
+    }
+    
+    // which one?
+    if (renderAge < rendererAge && renderAge >= 0) {
+      this._useRenderFirst = YES;
+    } else {
+      this._useRenderFirst = NO;
+    }
+    
     // register for event handling now if we're not a materialized view
     // (materialized views register themselves as needed)
     if (!this.get('isMaterialized')) {
@@ -1434,6 +1763,7 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     // setup child views.  be sure to clone the child views array first
     this.childViews = childViews ? childViews.slice() : [] ;
     this.createChildViews() ; // setup child Views
+    this._hasCreatedChildViews = YES;
     
     // register display property observers ..
     // TODO: Optimize into class setup 
@@ -1459,14 +1789,8 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     if(!this.respondsTo('touchEnd') && this.respondsTo('mouseUp')) {
       this.touchEnd=this.mouseUp;
     }
-    if(!this.respondsTo('touchMoved') && this.respondsTo('mouseMove')) {
-      this.touchMoved=this.mouseMove;
-    }
-    if(!this.respondsTo('touchEntered') && this.respondsTo('mouseEntered')) {
-      this.touchEntered=this.mouseEntered;
-    }
-    if(!this.respondsTo('touchExited') && this.respondsTo('mouseExited')) {
-      this.touchExited=this.mouseExited;
+    if(!this.respondsTo('touchesDragged') && this.respondsTo('mouseDragged')) {
+      this.touchesDragged=this.mouseDragged;
     }
   },
   
@@ -1499,8 +1823,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   destroy: function() {
     if (this.get('isDestroyed')) return this; // nothing to do
-     
-    sc_super();
     
     // remove from parent if found
     this.removeFromParent() ;
@@ -1511,6 +1833,9 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     
     // unregister for autoscroll during drags
     if (this.get('isScrollable')) SC.Drag.removeScrollableView(this) ;
+    
+    //Do generic destroy. It takes care of mixins and sets isDestroyed to YES.
+    sc_super();
     return this; // done with cleanup
   },
   
@@ -1525,7 +1850,7 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     var childViews = this.get('childViews'), len = childViews.length, idx ;
     if (len) {
       childViews = childViews.slice() ;
-      for (idx=0; idx<len; ++idx) childViews[idx]._destroy() ;
+      for (idx=0; idx<len; ++idx) childViews[idx].destroy() ;
     }
     
     // next remove view from global hash
@@ -1533,8 +1858,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     delete this._CQ ; 
     delete this.page ;
     
-    // mark as destroyed so we don't do this again
-    this.set('isDestroyed', YES) ;
     return this ;
   },
   
@@ -2063,18 +2386,18 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   
   /**
     The clipping frame returns the visible portion of the view, taking into
-    account the clippingFrame of the parent view.  Keep in mind that the 
+    account the contentClippingFrame of the parent view.  Keep in mind that the 
     clippingFrame is in the context of the view itself, not it's parent view.
     
     Normally this will be calculate based on the intersection of your own 
-    clippingFrame and your parentView's clippingFrame.  
+    clippingFrame and your parentView's contentClippingFrame.
 
     @property {Rect}
   */
   clippingFrame: function() {
     var pv= this.get('parentView'), f = this.get('frame'), ret = f, cf ;
     if (pv) {
-      cf = pv.get('clippingFrame');
+      cf = pv.get('contentClippingFrame');
       ret = SC.intersectRects(cf, f);
     }
 
@@ -2083,6 +2406,14 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
 
     return ret ;
   }.property('parentView', 'frame').cacheable(),
+  
+  /**
+    The clipping frame child views should intersect with.
+    The default value is the clipping frame.
+  */
+  contentClippingFrame: function() {
+    return this.get("clippingFrame");
+  }.property('clippingFrame').cacheable(),
   
   /** @private
     Whenever the clippingFrame changes, this observer will fire, notifying
@@ -2094,7 +2425,7 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
       cv = cvs[idx] ;
       if (!cv.hasStaticLayout) cv.notifyPropertyChange('clippingFrame') ;
     }
-  }.observes('clippingFrame'),
+  }.observes('contentClippingFrame'),
     
   /** 
     This method may be called on your view whenever the parent view resizes.
@@ -2296,14 +2627,14 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
       ret.left = "50%";
       if(lW && SC.isPercentage(lW)) ret.width = (lW*100)+"%" ; //percentage width
       else ret.width = Math.floor(lW || 0) ;
-      if(lW && SC.isPercentage(lW) && lcX >= 0 && lcX < 1){
+      if(lW && SC.isPercentage(lW) && (SC.isPercentage(lcX) || SC.isPercentage(lcX*-1))){
         ret.marginLeft = Math.floor((lcX - lW/2)*100)+"%" ;
-      }else if(lW && lW > 1 && (lcX >= 1 || lcX <= 0)){
+      }else if(lW && lW >= 1 && !SC.isPercentage(lcX)){
         ret.marginLeft = Math.floor(lcX - ret.width/2) ;
       }else {
         // This error message happens whenever width is not set.
-        // console.error("You have to set width and centerX usign both percentages or pixels");
-        ret.marginLeft = 0;
+        console.warn("You have to set width and centerX using both percentages or pixels");
+        ret.marginLeft = "50%";
       }
       ret.right = null ;
     
@@ -2370,15 +2701,14 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
       if(lH && SC.isPercentage(lH)) ret.height = (lH*100)+ "%" ;
       else ret.height = Math.floor(lH || 0) ;
       
-      if(lH && SC.isPercentage(lH) && lcY >= 0 && lcY < 1){
+      if(lH && SC.isPercentage(lH) && (SC.isPercentage(lcY) || SC.isPercentage(lcY*-1))){ //height is percentage and lcy too
         ret.marginTop = Math.floor((lcY - lH/2)*100)+"%" ;
-      }else if(lH && lH > 1 && (lcY >= 1 || lcY <= 0)){
+      }else if(lH && lH >= 1 && !SC.isPercentage(lcY)){
         ret.marginTop = Math.floor(lcY - ret.height/2) ;
       }else {
-        console.error("You have to set height and centerY to use both percentages or pixels");
-        ret.marginTop = 0;
+        console.warn("You have to set height and centerY to use both percentages or pixels");
+        ret.marginTop = "50%";
       }
-    
     } else if (!SC.none(lH)) {
       ret.top = 0;
       ret.bottom = null;

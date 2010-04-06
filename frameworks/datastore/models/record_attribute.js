@@ -223,12 +223,14 @@ SC.RecordAttribute = SC.Object.extend(
       record.writeAttribute(attrKey, nvalue); 
     } 
 
-    value = record.readAttribute(attrKey);
+    nvalue = value = record.readAttribute(attrKey);
     if (SC.none(value) && (value = this.get('defaultValue'))) {
        if (typeof value === SC.T_FUNCTION) {
-        value = this.defaultValue(record, key, this);
+        nvalue = this.defaultValue(record, key, this);
         // write default value so it doesn't have to be executed again
-        if(record.attributes()) record.writeAttribute(attrKey, value, true);
+        if ((nvalue !== value)  &&  record.get('store').readDataHash(record.get('storeKey'))) {
+          record.writeAttribute(attrKey, value, true);
+        }
       }
     } else value = this.toType(record, key, value);
     
@@ -391,6 +393,9 @@ SC.RecordAttribute.registerTransform(Date, {
 
   /** @private - convert a string to a Date */
   to: function(str, attr) {
+    if (str === null)
+      return null;
+
     var ret ;
     str = str.toString() || '';
     

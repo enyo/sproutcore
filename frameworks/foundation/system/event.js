@@ -28,11 +28,13 @@ sc_require('system/core_query') ;
   @since SproutCore 1.0
 */
 SC.Event = function(originalEvent) { 
-
+  var idx, len;
   // copy properties from original event, if passed in.
   if (originalEvent) {
     this.originalEvent = originalEvent ;
-    var props = SC.Event._props, len = props.length, idx = len , key;
+    var props = SC.Event._props, key;
+    len = props.length;
+    idx = len;
     while(--idx >= 0) {
       key = props[idx] ;
       this[key] = originalEvent[key] ;
@@ -97,28 +99,6 @@ SC.Event = function(originalEvent) {
   } else {
     this.wheelDelta = this.wheelDeltaY = SC.browser.msie ? 0-originalEvent.wheelDelta : originalEvent.wheelDelta ;
     this.wheelDeltaX = 0 ;
-  }
-  
-  // translate X/Y coordinates of touch into a real target
-  if (SC.browser.touch) {
-    var touches = this.changedTouches, target, elem;
-    if (touches && touches.length > 0) {
-      var firstTouch = touches[0];
-      this.pageX = firstTouch.pageX;
-      this.pageY = firstTouch.pageY;
-    }
-
-    target = elem = this.target;
-
-    if (target === SC.RootResponder.responder._touchInterceptElement) {
-      elem.style.display = 'none';
-      // document.body.removeChild(elem);
-      target = document.elementFromPoint(this.pageX, this.pageY);
-      this.target = target;
-      // document.body.appendChild(elem);
-      elem.style.display = 'block';
-    }
-    target = elem = null; //cleanup
   }
 
   return this; 
@@ -733,6 +713,21 @@ SC.Event.prototype = {
     Set to YES if you have called either preventDefault() or stopPropagation().  This allows a generic event handler to notice if you want to provide detailed control over how the browser handles the real event.
   */
   hasCustomEventHandling: NO,
+  
+  /**
+    Returns the touches owned by the supplied view.
+  */
+  touchesForView: function(view) {
+    if (this.touchContext) return this.touchContext.touchesForView(view);
+  },
+  
+  /**
+    Returns average data--x, y, and d (distance)--for the touches owned by the supplied view.
+  */
+  averagedTouchesForView: function(view) {
+    if (this.touchContext) return this.touchContext.averagedTouchesForView(view);
+    return null;
+  },
   
   /**
     Indicates that you want to allow the normal default behavior.  Sets

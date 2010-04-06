@@ -23,6 +23,7 @@ SC.CheckboxView = SC.ButtonView.extend(SC.StaticLayout, SC.Button,
 
   classNames: ['sc-checkbox-view'],
   tagName: 'label',
+  controlStyle: '', 
 
   /* Ellipsis is disabled by default to allow multiline text */
   needsEllipsis: NO,
@@ -33,43 +34,23 @@ SC.CheckboxView = SC.ButtonView.extend(SC.StaticLayout, SC.Button,
   */
   routeTouch: NO,
   
-
-  render: function(context, firstTime) {
-    var dt, elem,
-        value = this.get('value'),
-        ariaValue = value === SC.MIXED_MODE ? 
-                'mixed' : (value === this.get('toggleOnValue') ? 
-                    'true': 'false');
+  createRenderer: function(t) {
+    return t.checkbox();
+  },
+  
+  updateRenderer: function(r) {
+    // get value; we're gonna need it.
+    var value = this.get('value');
     
-    // add checkbox -- set name to view guid to separate it from others
-    if (firstTime) {
-      var blank = SC.BLANK_IMAGE_URL,
-          disabled = this.get('isEnabled') ? '' : 'disabled="disabled"',
-          guid = SC.guidFor(this);
-      
-      context.attr('role', 'checkbox');
-      dt = this._field_currentDisplayTitle = this.get('displayTitle');
-
-      if(SC.browser.msie) context.attr('for', guid);
-      context.push('<span class="button" ></span>');
-      if(this.get('needsEllipsis')){
-        context.push('<span class="label ellipsis">', dt, '</span>');
-      }else{
-        context.push('<span class="label">', dt, '</span>');  
-      }
-      context.attr('name', guid);
-
-    // since we don't want to regenerate the contents each time 
-    // actually search for and update the displayTitle.
-    } else {
-      
-      dt = this.get('displayTitle');
-      if (dt !== this._field_currentDisplayTitle) {
-        this._field_currentDisplayTitle = dt;
-        this.$('span.label').text(dt);
-      }
-    }
-    context.attr('aria-checked', ariaValue);
+    // set settings
+    r.attr({
+      title: this.get("displayTitle"),
+      name: SC.guidFor(this),
+      ariaValue: value === SC.MIXED_MODE ? 'mixed' : (value === this.get('toggleOnValue') ? 'true' : 'false'),
+      needsEllipsis: this.get('needsEllipsis'),
+      escapeHTML: this.get('escapeHTML'),
+      icon: this.get('icon')
+    });
   },
   
   acceptsFirstResponder: function() {
@@ -81,24 +62,41 @@ SC.CheckboxView = SC.ButtonView.extend(SC.StaticLayout, SC.Button,
   mouseDown: function(evt) {
     if(!this.get('isEnabled')) return YES;
     this.set('isActive', YES);
-    this._field_isMouseDown = YES;
+    this._isMouseDown = YES;
+    // even if radiobuttons are not set to get firstResponder, allow default 
+    // action, that way textfields loose focus as expected.
+    evt.allowDefault();
     return YES;
   },
   
   mouseUp: function(evt) {
-    if(!this.get('isEnabled')) return YES;
+    if(!this.get('isEnabled') || 
+      (evt && evt.target && !this.$().within(evt.target))) {
+      return YES;
+    }
     var val = this.get('value');
     if (val === this.get('toggleOnValue')) {
-      this.$().attr('aria-checked', 'false');
+      this.renderer.attr('ariaValue', 'false');
+      this.renderer.update();
       this.set('value', this.get('toggleOffValue'));
     }
     else {
-      this.$().attr('aria-checked', 'true');
+      this.renderer.attr('ariaValue', 'true');
+      this.renderer.update();
       this.set('value', this.get('toggleOnValue'));
     }
     this.set('isActive', NO);
-    this._field_isMouseDown = NO;
+    this._isMouseDown = NO;
     return YES;
+  },
+  
+  
+  touchStart: function(evt) {
+    return this.mouseDown(evt);
+  },
+  
+  touchEnd: function(evt) {
+    return this.mouseUp(evt);
   }
     
 }) ;

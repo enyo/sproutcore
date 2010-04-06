@@ -150,7 +150,13 @@ SC.ListItemView = SC.View.extend(
     when the list item is created.
   */
   disclosureState: SC.LEAF_NODE,
-  
+
+  /**
+    The validator to use ifor the inline text field created when the list item
+    is edited.
+  */
+  validator: null,
+
   contentPropertyDidChange: function() {
     //if (this.get('isEditing')) this.discardEditing() ;
     if (this.get('contentIsEditable') !== this.contentIsEditable()) {
@@ -352,8 +358,7 @@ SC.ListItemView = SC.View.extend(
     }
     
     // generate the img element...
-    classArray.push(className);
-    classArray.push('icon');
+    classArray.push(className,'icon');
     context.begin('img')
             .addClass(classArray)
             .attr('src', url)
@@ -403,8 +408,7 @@ SC.ListItemView = SC.View.extend(
     }
     
     // generate the img element...
-    classArray.push('right-icon');
-    classArray.push(className);
+    classArray.push('right-icon',className);
     context.begin('img')
       .addClass(classArray)
       .attr('src', url)
@@ -447,8 +451,7 @@ SC.ListItemView = SC.View.extend(
   */
   renderBranch: function(context, hasBranch) {
     var classArray=[];
-    classArray.push('branch');
-    classArray.push(hasBranch ? 'branch-visible' : 'branch-hidden');
+    classArray.push('branch',hasBranch ? 'branch-visible' : 'branch-hidden');
     context.begin('span')
           .addClass(classArray)
           .push('&nbsp;')
@@ -624,6 +627,23 @@ SC.ListItemView = SC.View.extend(
    return NO ;
   },
   
+  touchStart: function(evt){
+    return this.mouseDown(evt);
+  },
+  
+  touchEnd: function(evt){
+    return this.mouseUp(evt);
+  },
+  
+  touchEntered: function(evt){
+    return this.mouseEntered(evt);
+  },
+  
+  touchExited: function(evt){
+    return this.mouseExited(evt);
+  },
+  
+  
   _addCheckboxActiveState: function() {
    var enabled = this.get('isEnabled');
    this.$('.sc-checkbox-view').setClass('active', enabled);
@@ -686,12 +706,13 @@ SC.ListItemView = SC.View.extend(
   },
   
   _beginEditing: function(scrollIfNeeded) {
-    var content  = this.get('content'),
-        del      = this.get('displayDelegate'),
-        labelKey = this.getDelegateProperty('contentValueKey', del),
-        parent   = this.get('parentView'),
-        pf       = parent ? parent.get('frame') : null,
-        el       = this.$label(),
+    var content   = this.get('content'),
+        del       = this.get('displayDelegate'),
+        labelKey  = this.getDelegateProperty('contentValueKey', del),
+        parent    = this.get('parentView'),
+        pf        = parent ? parent.get('frame') : null,
+        el        = this.$label(),
+        validator = this.get('validator'),
         f, v, offset, oldLineHeight, fontSize, top, lineHeight, 
         lineHeightShift, targetLineHeight, ret ;
 
@@ -747,7 +768,8 @@ SC.ListItemView = SC.View.extend(
       delegate: this, 
       value: v,
       multiline: NO,
-      isCollection: YES
+      isCollection: YES,
+      validator: validator
     }) ;
 
     // restore old line height for original item if the old line height 

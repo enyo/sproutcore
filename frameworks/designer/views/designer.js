@@ -664,16 +664,31 @@ SC.ViewDesigner = SC.Object.extend(
     var info = this._mouseDownInfo, 
         view = this.get('view'),
         layout;
-    
-    if (view && (info.hanchor || info.vanchor)) {
-      layout = SC.copy(this.get('layout'));
-      if (info.hanchor) this._mouseResize(evt, info, this.HKEYS, layout);
-      if (info.vanchor) this._mouseResize(evt, info, this.VKEYS, layout);
-      this.set('layout', layout);
-      
-    } else if (info.reposition) {
-      this.get('designController').repositionSelection(evt, info);
+    //do some binding!!!
+    if(evt.altKey){
+      SC.Drag.start({
+        event: evt,
+        source: this,
+        dragView: SC.View.create({ layout: {left: 0, top: 0, width: 0, height: 0}}),
+        ghost: NO,
+        slideBack: YES,
+        dataSource: this,
+        anchorView: view
+      });
     }
+    //normal drag
+    else{
+      if (view && (info.hanchor || info.vanchor)) {
+        layout = SC.copy(this.get('layout'));
+        if (info.hanchor) this._mouseResize(evt, info, this.HKEYS, layout);
+        if (info.vanchor) this._mouseResize(evt, info, this.VKEYS, layout);
+        this.set('layout', layout);
+
+      } else if (info.reposition) {
+        this.get('designController').repositionSelection(evt, info);
+      }
+    }
+
   },
   
   /**
@@ -694,7 +709,6 @@ SC.ViewDesigner = SC.Object.extend(
           
       if (frame && pview) frame = pview.convertFrameToView(frame, null);
 
-      //debugger;
       if (!frame || SC.pointInRect({ x: evt.pageX, y: evt.pageY }, frame)) {
         var controller = this.get('designController');
         if (info.metaKey) controller.deselect(this);
@@ -847,8 +861,65 @@ SC.ViewDesigner = SC.Object.extend(
     } else ret[headKey] = (layout[headKey]||0)+delta;
     
     return YES ;
-  }
-    
+  },
+  
+  // ..........................................................
+  // Drag data source
+  //   
+  /**
+    This method must be overridden for drag operations to be allowed. 
+    Return a bitwise OR'd mask of the drag operations allowed on the
+    specified target.  If you don't care about the target, just return a
+    constant value.
+  
+    @param {SC.View} dropTarget The proposed target of the drop.
+    @param {SC.Drag} drag The SC.Drag instance managing this drag.
+  
+  */
+  dragSourceOperationMaskFor: function(drag, dropTarget) {
+    return SC.DRAG_LINK;
+  },
+
+  /**  
+    This method is called when the drag begins. You can use this to do any
+    visual highlighting to indicate that the receiver is the source of the 
+    drag.
+  
+    @param {SC.Drag} drag The Drag instance managing this drag.
+  
+    @param {Point} loc The point in *window* coordinates where the drag 
+      began.  You can use convertOffsetFromView() to convert this to local 
+      coordinates.
+  */
+  dragDidBegin: function(drag, loc) {
+  },
+  
+  /**
+    This method is called whenever the drag image is moved.  This is
+    similar to the dragUpdated() method called on drop targets.
+
+    @param {SC.Drag} drag The Drag instance managing this drag.
+
+    @param {Point} loc  The point in *window* coordinates where the drag 
+      mouse is.  You can use convertOffsetFromView() to convert this to local 
+      coordinates.
+  */
+  dragDidMove: function(drag, loc) {
+    // var dragLink = drag.dragLink;
+    // var endX, endY;
+    // 
+    // if (dragLink) {
+    //   // if using latest SproutCore 1.0, loc is expressed in browser window coordinates
+    //   var pv = dragLink.get('parentView');
+    //   var frame = dragLink.get('frame');
+    //   var globalFrame = pv ? pv.convertFrameToView(frame, null) : frame;
+    //   if (globalFrame) {
+    //     endX = loc.x - globalFrame.x;
+    //     endY = loc.y - globalFrame.y;
+    //     dragLink.set('endPt', {x: endX , y: endY});
+    //   }
+    // }
+  }  
 }) ;
 
 // Set default Designer for view
@@ -878,6 +949,8 @@ SC.ViewDesigner.mixin({
   */
   didLoadDesign: function(designedView, sourceView, attrs) {
     designedView.isDesign = YES ; // indicates that we need a designer.
+    designedView.designAttrs = attrs;
+    designedView.sourceView = sourceView;
   },
 
   /**
@@ -899,7 +972,7 @@ SC.ViewDesigner.mixin({
     if (design.isDesign && page && page.get('needsDesigner')) {
       
       // find the designer class
-      var cur = design;
+      var cur = design, origDesign = design;
       while(cur && !cur.Designer) cur = cur.superclass;
       var DesignerClass = (cur) ? cur.Designer : SC.View.Designer;
       
@@ -911,7 +984,9 @@ SC.ViewDesigner.mixin({
       
       view.designer = DesignerClass.create({
         view: view,
-        viewClass: design
+        viewClass: design,
+        designAttrs: origDesign.designAttrs,
+        sourceView: origDesign.sourceView
       });
     }
   }

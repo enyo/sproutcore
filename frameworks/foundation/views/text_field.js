@@ -54,6 +54,21 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
   isEditing: NO,
 
   /**
+    If true, every change to the text in the text field updates 'value'.
+    If false, 'value' is only updated when commitEditing() is called (this
+    is called automatically when the text field loses focus), or whenever
+    the return key is pressed while editing the field.
+  */
+  continuouslyUpdatesValue: YES,
+
+  /**
+    If no, will not allow transform or validation errors (SC.Error objects)
+    to be passed to 'value'.  Upon focus lost, the text field will revert
+    to its previous value.
+  */
+  allowsErrorAsValue: YES,
+
+  /**
     An optional view instance, or view class reference, which will be visible
     on the left side of the text field.  Visually the accessory view will look
     to be inside the field but the text editing will not overlap the accessory
@@ -109,6 +124,53 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
   isEditable: function() {
     return this.get('isEnabled') ;
   }.property('isEnabled').cacheable(),
+
+  /**
+    Override SC.Editable.beginEditing() here so we have a chance
+    to preserve the original 'value' before we edit it.
+  */
+  beginEditing: function() {
+    if (!this.get('isEditable')) return NO ;
+  
+    if (!this.get('isEditing')) {
+      this._originalValue = this.get('value'); // save our last value
+      this.setIfChanged('editingValue', this._originalValue); // init the editing value to current value
+      
+      // begin editing
+      this.set('isEditing', YES) ;
+      this.becomeFirstResponder() ;
+    }
+  
+    return YES ;
+  },
+
+  /**
+    Override SC.Editable.commitEditing() here so we can update
+    'value' if needed when committing.
+  */
+  commitEditing: function() {
+    var value, type;
+
+    if (this.get('isEditing')) {
+      this.beginPropertyChanges();
+      value = this.getValidatedValueFromFieldValue(NO); // transform raw text into validated value
+      
+      // optionally revert to previous value if SC.Error is not allowed as 'value'
+      value = ((SC.typeOf(value) !== SC.T_ERROR) || this.get('allowsErrorAsValue')) ? value : this._originalValue;
+
+      this.setIfChanged('value', value);
+      this.setIfChanged('editingValue', value);
+      this._originalValue = null; // clean up
+
+      this.applyValueToField(value); // write raw text into the field, via transform
+      this.endPropertyChanges();
+
+      this.set('isEditing', NO);
+      this.resignFirstResponder();
+    }
+  
+    return YES ;
+  },
 
   /**
     The current selection of the text field, returned as an SC.TextSelection
@@ -213,7 +275,7 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
   // INTERNAL SUPPORT
   //
 
-  displayProperties: 'hint fieldValue isEditing leftAccessoryView rightAccessoryView isTextArea'.w(),
+  displayProperties: 'hint fieldValue editingValue isEditing leftAccessoryView rightAccessoryView isTextArea'.w(),
 
   createChildViews: function() {
     this.accessoryViewObserver() ;
@@ -510,6 +572,36 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
     SC.Event.remove(input, 'focus',  this, this._firefox_dispatch_keypress);
   },
 
+  /**
+    Overridden from SC.FieldView, called whenever input field value changes.
+    Special implementation for SC.TextFieldView so that we can support
+    'continuouslyUpdatesValue'.
+  */
+  fieldValueDidChange: function() {
+    var value = this.getValidatedValueFromFieldValue(YES);
+    
+    this.beginPropertyChanges();
+    
+    // keep track of our edited value even if we aren't changing 'value'    
+    this.setIfChanged('editingValue', value);
+
+    // update value if desired and possible
+    if (this.get('continuouslyUpdatesValue') && ((SC.typeOf(value) !== SC.T_ERROR) || this.get('allowsErrorAsValue'))) {
+      this.setIfChanged('value', value);
+    }
+    
+    // make sure raw text gets in sync with whatever transforms and
+    // validation we have applied
+    this.applyValueToField(value);
+    this.endPropertyChanges();
+  },
+  
+  _textField_valueDidChange: function() {
+    var value = this.get('value');
+    this.setIfChanged('editingValue', value);
+    this.applyValueToField(value); // sync text in text field
+  }.observes('value'),
+
   _textField_fieldDidFocus: function(evt) {
     SC.RunLoop.begin();
     this.fieldDidFocus();
@@ -527,6 +619,7 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
   },
   
   fieldDidBlur: function() {
+    
     this.commitEditing();
   },
 
@@ -615,9 +708,7 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
       if(inp) inp.focus();
       
       if(!this._txtFieldMouseDown){
-        if(SC.browser.mozilla) this.invokeOnce(this._selectRootElement) ;
-        else if(SC.browser.safari) this.invokeLater(this._selectRootElement, 1) ; 
-        else this._selectRootElement();
+        this.invokeLast(this._selectRootElement) ;
       }
     }
   },
@@ -636,7 +727,8 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
   // the hint text if needed.
   /** @private */
   didLoseKeyResponderTo: function(keyView) {
-    this.$input()[0].blur() ;
+    var el = this.$input()[0];
+    if (el) el.blur();
   },
 
   parentViewDidResize: function() {
@@ -651,16 +743,33 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
     implementation.
   */
   keyDown: function(evt) {
+    var value, view;
+
     // Handle return and escape.  this way they can be passed on to the
     // responder chain.
     // If the event is triggered by a return while entering IME input,
     // don't got through this path.
-    if ((evt.which === 13 && !evt.isIMEInput) && !this.get('isTextArea')) return NO ;
+    if ((evt.which === 13 && !evt.isIMEInput) && !this.get('isTextArea')) {
+
+      // If we're not continuously updating 'value' as we type, force an update
+      // if return is pressed.
+      if (!this.get('continuouslyUpdatesValue')) {
+        value = this.getValidatedValueFromFieldValue(NO);
+        
+        if ((SC.typeOf(value) !== SC.T_ERROR) || this.get('allowsErrorAsValue')) {
+          this.setIfChanged('value', value);
+          this.applyValueToField(value); // sync text in the text field
+        }
+      }
+
+      return NO;
+    }
+
     if (evt.which === 27) return NO ;
 
     // handle tab key
     if (evt.which === 9) {
-      var view = evt.shiftKey ? this.get('previousValidKeyView') : this.get('nextValidKeyView');
+      view = evt.shiftKey ? this.get('previousValidKeyView') : this.get('nextValidKeyView');
       if (view) view.becomeFirstResponder();
       else evt.allowDefault();
       return YES ; // handled
@@ -693,19 +802,27 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
   },
 
   mouseDown: function(evt) {
-    var fieldValue = this.get('fieldValue'); // use 'fieldValue' since we want actual text
-
-    this._txtFieldMouseDown=YES;
-    if (!this.get('isEnabled')) {
-      evt.stop();
-      return YES;
-    } else if ((fieldValue && fieldValue.length === 0) || !fieldValue) {
-      this.$input()[0].focus();
-      return YES;
-    } else {
+    if(evt.target && evt.target.tagName && evt.target.tagName!="INPUT"){
+            
+      this._txtFieldMouseDown=YES;
+      if (!this.get('isEnabled')) {
+        evt.stop();
+        return YES;
+      } else if((this.value && this.value.length===0) || !this.value) {
+        if(SC.browser.msie){
+          this.invokeLater(this.focusIE7,1);
+        }else{
+          this.$input()[0].focus();
+        }
+        return YES;
+      } else {
+        evt.stop();
       // This fixes the double click issue in firefox
-      if (!SC.browser.safari) this.$input()[0].focus();
-      return sc_super();
+        if(!SC.browser.safari) this.$input()[0].focus();
+        return sc_super();
+      }
+    }else{
+      return NO;
     }
   },
 
@@ -721,8 +838,8 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
     if (!this.get('isEnabled')) {
       evt.stop();
       return YES;
-    } else if ((fieldValue && fieldValue.length === 0) || !fieldValue) {
-      if (SC.browser.msie < 8) {
+    } else if((this.value && this.value.length===0) || !this.value) {
+      if(parseInt(SC.browser.msie,0)<8){
         this.invokeLater(this.focusIE7, 1);
       } else {
         this.$input()[0].focus();
@@ -730,9 +847,29 @@ SC.TextFieldView = SC.FieldView.extend(SC.StaticLayout, SC.Editable,
       return YES;
     } else return sc_super();
   },
-
+  
   focusIE7: function (){
     this.$input()[0].focus();
+  },
+  
+  // some touch events (may be improvable, though)
+  touchStart: function(evt) {
+    if (!this.get('isEnabled')) {
+      evt.stop();
+    } else {
+      evt.allowDefault();
+    }
+    return YES;
+  },
+  
+  touchEnd: function(evt) {
+    this.notifyPropertyChange('selection');
+    if (!this.get('isEnabled')) {
+      evt.stop();
+    } else {
+      evt.allowDefault();
+    }
+    return YES;
   },
 
   selectStart: function(evt) {

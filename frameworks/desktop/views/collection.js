@@ -938,6 +938,7 @@ SC.CollectionView = SC.View.extend(
       //this.replaceAllChildren(views);
       containerView.beginPropertyChanges();
       // views = containerView.get('views');
+      if (this.willRemoveAllChildren) this.willRemoveAllChildren() ;
       containerView.destroyLayer().removeAllChildren();
       
       // For all previous views that can be re-used, return them to the pool.
@@ -2074,7 +2075,8 @@ SC.CollectionView = SC.View.extend(
     var itemView      = this.itemViewForEvent(ev),
         content       = this.get('content'),
         contentIndex  = itemView ? itemView.get('contentIndex') : -1, 
-        info, anchor ;
+        info, anchor,
+        allowsMultipleSel = content.get('allowsMultipleSelection');
         
     info = this.mouseDownInfo = {
       event:        ev,  
@@ -2100,6 +2102,7 @@ SC.CollectionView = SC.View.extend(
     isSelected = sel ? sel.contains(contentIndex) : NO;
     info.modifierKeyPressed = modifierKeyPressed = ev.ctrlKey || ev.metaKey ;
     
+    
     // holding down a modifier key while clicking a selected item should 
     // deselect that item...deselect and bail.
     if (modifierKeyPressed && isSelected) {
@@ -2107,7 +2110,7 @@ SC.CollectionView = SC.View.extend(
 
     // if the shiftKey was pressed, then we want to extend the selection
     // from the last selected item
-    } else if (ev.shiftKey && sel && sel.get('length') > 0) {
+    } else if (ev.shiftKey && sel && sel.get('length') > 0 && allowsMultipleSel) {
       sel = this._findSelectionExtendedByShift(sel, contentIndex);
       anchor = this._selectionAnchor ; 
       this.select(sel) ;
@@ -2121,6 +2124,11 @@ SC.CollectionView = SC.View.extend(
     // Otherwise, if selecting on mouse down,  simply select the clicked on 
     // item, adding it to the current selection if a modifier key was pressed.
     } else {
+    
+      if((ev.shiftKey || modifierKeyPressed) && !allowsMultipleSel){
+        this.select(null, false);
+      }
+    
       if (this.get("selectOnMouseDown")) {
         this.select(contentIndex, modifierKeyPressed);
       } else {
@@ -2170,7 +2178,6 @@ SC.CollectionView = SC.View.extend(
       // selection and reselect the clicked on item.
       if (info.shouldReselect) {
         
-        //debugger ;
         // - contentValueIsEditable is true
         canEdit = this.get('isEditable') && this.get('canEditContent') ;
         
@@ -2248,8 +2255,7 @@ SC.CollectionView = SC.View.extend(
   // ..........................................................
   // TOUCH EVENTS
   //
-  touchStart: function(ev) {
-
+  touchStart: function(touch, evt) {
     // When the user presses the mouse down, we don't do much just yet.
     // Instead, we just need to save a bunch of state about the mouse down
     // so we can choose the right thing to do later.
@@ -2260,7 +2266,7 @@ SC.CollectionView = SC.View.extend(
     // find the actual view the mouse was pressed down on.  This will call
     // hitTest() on item views so they can implement non-square detection
     // modes. -- once we have an item view, get its content object as well.
-    var itemView      = this.itemViewForEvent(ev),
+    var itemView      = this.itemViewForEvent(touch),
         content       = this.get('content'),
         contentIndex  = itemView ? itemView.get('contentIndex') : -1,
         info, anchor ;
@@ -2268,13 +2274,18 @@ SC.CollectionView = SC.View.extend(
     // become first responder if possible.
     this.becomeFirstResponder() ;
     this.select(contentIndex, NO);
-
-    return SC.MIXED_STATE;
+    return YES;
   },
 
-  touchDragged: function(evt) {
+  touchesDragged: function(evt, touches) {
+    touches.forEach(function(t){
+      if (Math.abs(t.pageY - t.startY) > 4) t.makeTouchResponder(t.nextTouchResponder);
+    });
     this.select(null, NO);
-    return SC.MIXED_STATE;
+  },
+  
+  touchEnd: function(touch) {
+    
   },
 
   touchCancelled: function(evt) {

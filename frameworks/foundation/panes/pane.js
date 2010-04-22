@@ -5,7 +5,8 @@
 // License:   Licensed under MIT license (see license.js)
 // ==========================================================================
 
-require('views/view');
+sc_require('views/view');
+sc_require('mixins/responder_context');
 
 /** @class
   A Pane is like a regular view except that it does not need to live within a 
@@ -78,7 +79,9 @@ require('views/view');
   @extends SC.ResponderContext
   @since SproutCore 1.0
 */
-SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
+SC.Pane = SC.View.extend(SC.ResponderContext,
+/** @scope SC.Pane.prototype */ {
+
   /** 
     Returns YES for easy detection of when you reached the pane. 
     @property {Boolean}
@@ -90,8 +93,6 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
     @property {SC.Page}
   */
   page: null,
-  
-  theme : "sc-empty",
   
   // .......................................................
   // ROOT RESPONDER SUPPORT
@@ -119,6 +120,8 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
     @returns {Rect} current window size 
   */
   computeParentDimensions: function(frame) {
+    if(this.get('designer') && SC.suppressMain) return sc_super();
+    
     var wframe = this.get('currentWindowSize');
     var wDim = {x: 0, y: 0, width: 1000, height: 1000};
     if (wframe){
@@ -152,6 +155,7 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
     
   /** @private Disable caching due to an known bug in SC. */
   frame: function() {
+    if(this.get('designer') && SC.suppressMain) return sc_super();    
     return this.computeFrameWithParentFrame(null) ;
   }.property(),
   
@@ -188,25 +192,12 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
     @returns {Object} object that handled the event
   */
   sendEvent: function(action, evt, target) {
-    var handler;
+    var handler ;
     
     // walk up the responder chain looking for a method to handle the event
     if (!target) target = this.get('firstResponder') ;
-    while(target) {
-      // special case 1: if touchStart && the target is already the touch responder,
-      // just return the target–don't bother sending touchStart again
-      if (action === 'touchStart' && evt.touchResponder === target) break;
-      
-      // special case 2: handle acceptsMultitouch
-      if (action === 'touchStart' && !target.get("acceptsMultitouch")) {
-        if (target.tryToPerform("touchStart", evt)) break;
-      } else if (action === 'touchEnd' && !target.get("acceptsMultitouch")) {
-        if (target.get("hasTouch")) break;
-        if (target.tryToPerform("touchEnd", evt)) break;
-      } else {
-        if (target.tryToPerform(action, evt)) break;
-      }
-      
+    while(target && !target.tryToPerform(action, evt)) {
+
       // even if someone tries to fill in the nextResponder on the pane, stop
       // searching when we hit the pane.
       target = (target === this) ? null : target.get('nextResponder') ;
@@ -225,79 +216,6 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
     }
         
     return evt.mouseHandler || target ;
-  },
-
-  /**
-    Attempts to send a touch event down the responder chain for this pane. If
-    you pass a target, this method will begin with the target and work up the
-    responder chain. Otherwise, it will begin with the current firstResponder
-    and walk up the chain looking for any responder that implements a handler
-    for the passed method and returns YES or SC.MIXED_STATE when executed.
-
-    This method differs from the sendEvent method by supporting views that
-    return SC.MIXED_STATE. In that case, the event will continue to bubble up
-    the chain until the end is reached or another view returns YES.
-
-    @param {String} action
-    @param {SC.Event} evt
-    @param {Object} target
-    @returns {Array} views an array of views that handled the event
-  */
-  sendTouchEvent: function(action, evt, target) {
-    var handler, response, exclusive = NO, ret = [] ;
-
-    // walk up the responder chain looking for a method to handle the event
-    if (!target) target = this.get('firstResponder') ;
-    while (target) {
-      if (target.respondsTo(action)) {
-        switch (target[action](evt)) {
-          case SC.MIXED_STATE:
-            // The view is interested in events but doesn't want exclusive
-            // control, so keep it in a list of interested views
-            ret.push(target);
-            break;
-          case YES:
-            // The view wants to respond to this event, so we'll stop looking
-            // and give it exclusive control
-            ret = [target];
-            target = null;
-            exclusive = YES;
-            continue;
-        }
-      }
-
-      // even if someone tries to fill in the nextResponder on the pane, stop
-      // searching when we hit the pane.
-      target = (target === this) ? null : target.get('nextResponder') ;
-    }
-
-    // if no handler was found in the responder chain, try the default
-    if (!exclusive && (target = this.get('defaultResponder'))) {
-      if (typeof target === SC.T_STRING) {
-        target = SC.objectForPropertyPath(target);
-      }
-
-      if (target) {
-        // Make sure we merge the return arrays instead of clobbering
-        // our earlier results
-        if (target.isResponderContext) {
-          ret = ret.concat(target.sendTouchAction(action, this, evt));
-        } else {
-          if (target.respondsTo(action)) response = target[action](evt);
-
-          switch (response) {
-            case SC.MIXED_STATE:
-              ret.push(target);
-              break;
-            case YES:
-              ret = [target];
-          }
-        }
-      }
-    }
-
-    target = null;
-    return ret ;
   },
 
   performKeyEquivalent: function(keystring, evt) {
@@ -322,27 +240,19 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
   },
 
   // .......................................................
-  // HANDLE FIRST RESPONDER AND KEY RESPONDER STATUS
+  // RESPONDER CONTEXT
   //
 
   /**
-    The default responder.  Set this to point to a responder object that can 
-    respond to events when no other view in the hierarchy handles them.
-    
-    @property {SC.Responder}
-  */
-  defaultResponder: null,
-  
-  /**
-    Pane's never have a next responder
-    
+    Pane's never have a next responder.
+
     @property {SC.Responder}
     @readOnly
   */
   nextResponder: function() {
     return null;
   }.property().cacheable(),
-  
+
   /**
     The first responder.  This is the first view that should receive action 
     events.  Whenever you click on a view, it will usually become 
@@ -399,14 +309,15 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
     well.
     
     @param {SC.View} view
+    @param {Event} evt that cause this to become first responder
     @returns {SC.Pane} receiver
   */
-  makeFirstResponder: function(view) {
+  makeFirstResponder: function(view, evt) {
     var current=this.get('firstResponder'), isKeyPane=this.get('isKeyPane');
     if (current === view) return this ; // nothing to do
     
     // notify current of firstResponder change
-    if (current) current.willLoseFirstResponder(current);
+    if (current) current.willLoseFirstResponder(current, evt);
     
     // if we are currently key pane, then notify key views of change also
     if (isKeyPane) {
@@ -756,6 +667,7 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
     @returns {SC.Pane} receiver
   */
   recomputeIsVisibleInWindow: function(parentViewIsVisible) {
+    if(this.get('designer') && SC.suppressMain) return sc_super();
     var last = this.get('isVisibleInWindow'),
         cur = this.get('isVisible') ;
 
@@ -792,6 +704,7 @@ SC.Pane = SC.View.extend( /** @scope SC.Pane.prototype */ {
   
   /** @private */
   updateLayerLocation: function() {
+    if(this.get('designer') && SC.suppressMain) return sc_super();
     // note: the normal code here to update node location is removed 
     // because we don't need it for panes.
     return this ; 

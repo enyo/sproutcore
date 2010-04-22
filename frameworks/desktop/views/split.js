@@ -478,7 +478,7 @@ SC.SplitView = SC.View.extend(
 		return NO ;
   },
   
-  touchDragged: function(evt){
+  touchesDragged: function(evt){
     return this.mouseDragged(evt);
   },
   

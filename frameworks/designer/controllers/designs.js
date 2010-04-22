@@ -31,6 +31,12 @@ SC.designsController = SC.ArrayController.create(SC.CollectionViewDelegate,
           else if(page[v].kindOf(iframe.SC.Page)){
             designs.push(SC.Object.create({type: 'page', view: page.get(v), name: v}));
           }
+          else if(page[v].kindOf(iframe.SC.Controller)){
+            designs.push(SC.Object.create({type: 'controller', name: v, view: page.get(v)}));
+          }
+          else if(page[v].kindOf(iframe.SC.Object) && !page[v].isPageDesignController){
+            designs.push(SC.Object.create({type: 'controller', name: v, view: page.get(v)}));
+          }
 
         }
       }
@@ -76,7 +82,7 @@ SC.designsController = SC.ArrayController.create(SC.CollectionViewDelegate,
     @returns the allowed drag operation.  Defaults to op
   */
   collectionViewValidateDragOperation: function(view, drag, op, proposedInsertionIndex, proposedDropOperation) {
-    var data = drag.dataForType('SC.View');
+    var data = drag.dataForType('SC.Object');
     if(data){
       return SC.DRAG_ANY;
     }
@@ -104,20 +110,23 @@ SC.designsController = SC.ArrayController.create(SC.CollectionViewDelegate,
     @returns the allowed drag operation.  Defaults to proposedDragOperation
   */
   collectionViewPerformDragOperation: function(view, drag, op, proposedInsertionIndex, proposedDropOperation) {
-    var data = drag.dataForType('SC.View'),
+    var data = drag.dataForType('SC.Object'),
         page = this.get('page'),
+        scClass,
         that = this;
     if(data){
       var actionObj = SC.Object.create({
-        type: 'view', 
         data: data,
-        addViewToPage: function(name){
-          page[name] = eval(this.getPath('data.scClass')).design().create({page: page});
-          that.pushObject(SC.Object.create({type: this.get('type'), view: page.get(name), name: name}));
+        addItemToPage: function(name){
+          scClass = eval(this.getPath('data.scClass'));
+          var type = SC.kindOf(scClass, SC.View) ? 'view' : 'controller';
+          
+          page[name] = scClass.design().create({page: page});
+          that.pushObject(SC.Object.create({type: type, view: page.get(name), name: name}));
         }
       });
       
-      SC._Greenhouse.sendAction('addToPage', actionObj);
+      SC._Greenhouse.sendAction('newPageElement', actionObj);
       return SC.DRAG_ANY;
     }
     return SC.DRAG_NONE ;

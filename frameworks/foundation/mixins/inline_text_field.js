@@ -98,27 +98,30 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
     @returns {Boolean} YES if editor began editing, NO if it failed.
   */
   beginEditing: function(options) {
-    if (!options) return;
-    
-    var layout={}, pane, delLayout, paneElem;
-    
-    this._delegate = options.delegate ;
-    var del = this._delegate ;
-    
-    // continue only if the delegate allows it
-    if (!this.invokeDelegateMethod(del, 'inlineEditorShouldBeginEditing', this)) return;
-    
-    // end existing editing if necessary
-    this.beginPropertyChanges();
-    if (this.get('isEditing') && !this.blurEditor()) {
-      this.endPropertyChanges();  return NO ;
-    }
 
+    // options are required
+//@if(debug)
+    if (!options) throw "InlineTextFiedl.beginEditing() requires options";
+//@end
+
+    // can't begin editing again if already editing
+    if (this.get('isEditing')) return NO ;
+    
+    var layout={}, pane, delLayout, paneElem, del;
+
+    del = this._delegate = options.delegate ;
+    this.set('delegate', this._delegate);
+
+    // continue only if the delegate allows it
+    if (!this.invokeDelegateMethod(del, 'inlineEditorShouldBeginEditing', this)) return NO;
+    
+    this.beginPropertyChanges();
+    
+    this.set('isEditing', YES) ;
+    
     this._optframe = options.frame ;
     this._optIsCollection = options.isCollection;
     this._exampleElement = options.exampleElement ;
-    this._delegate = options.delegate ;
-    this.set('delegate', this._delegate);
 
     if (!this._optframe || !this._delegate) {
       throw "At least frame and delegate options are required for inline editor";
@@ -138,7 +141,7 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
     this.set('value', this._originalValue) ;
     //this.set('selectedRange', options.selectedRange || { start: this._originalValue.length, length: 0 }) ;
 
-    this.set('isEditing', YES) ;
+    
     
     // add to window.
     
@@ -148,17 +151,18 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
     layout.width=this._optframe.width;
     delLayout = this._delegate.get('layout');
     paneElem = pane.$()[0];
-    if(this._optIsCollection && delLayout.left){
+    if (this._optIsCollection && delLayout.left) {
       layout.left=this._optframe.x-delLayout.left-paneElem.offsetLeft-1;
       if(SC.browser.msie==7) layout.left--;
-    }else{
+    } else {
       layout.left=this._optframe.x-paneElem.offsetLeft-1;
       if(SC.browser.msie==7) layout.left--;
     }
-    if(this._optIsCollection && delLayout.top){
+    
+    if (this._optIsCollection && delLayout.top) {
       layout.top=this._optframe.y-delLayout.top-paneElem.offsetTop;
       if(SC.browser.msie==7) layout.top=layout.top-2;
-    }else{
+    } else {
       layout.top=this._optframe.y-paneElem.offsetTop;
       if(SC.browser.msie==7) layout.top=layout.top-2;  
     }
@@ -170,12 +174,12 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
    
     pane.appendChild(this);
     
-    var del = this._delegate ;
+    del = this._delegate ;
 
     this._className = this.getDelegateProperty(del,"inlineEditorClassName");
     if(this._className && !this.hasClassName(this._className)) {
-        this.setClassName(this._className,true);
-      }
+      this.setClassName(this._className,true);
+    }
     
     this.invokeDelegateMethod(del, 'inlineEditorWillBeginEditing', this) ;
     // this.resizeToFit(this.getFieldValue()) ;
@@ -198,13 +202,13 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
     
     Do not use this method, use the class method instead.
     
+    @param {Event} evt that triggered the commit to happen
     @returns {Boolean}
   */
-  commitEditing: function() {
+  commitEditing: function(evt) {
     // try to validate field.  If it fails, return false.  
-    var value = this.getValidatedValueFromFieldValue(NO);
-    if (SC.typeOf(value) === SC.T_ERROR) return NO;
-    return this._endEditing(value) ;
+    if (!SC.$ok(this.validateSubmit())) return NO ;
+    return this._endEditing(this.get('value'), evt) ;
   },
   
   /**
@@ -224,26 +228,27 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
     
     @returns {Boolean}
   */
-  blurEditor: function() {
+  blurEditor: function(evt) {
     if (!this.get('isEditing')) return YES ;
-    return this._commitOnBlur ? this.commitEditing() : this.discardEditing();  
+    return this._commitOnBlur ? this.commitEditing(evt) : this.discardEditing(evt);  
   },
   
   /** @private
     Called by commitEditing and discardEditing to actually end editing.
 
+    @param {Event} evt that triggered the end editing to occur
     @returns {Boolean} NO if editing did not exit
   */
-  _endEditing: function(finalValue) {
+  _endEditing: function(finalValue, evt) {
     if (!this.get('isEditing')) return YES ;
     
     // get permission from the delegate.
     var del = this._delegate ;
-    if (!this.invokeDelegateMethod(del, 'inlineEditorShouldEndEditing', this, finalValue)) return NO ; 
+    if (!this.invokeDelegateMethod(del, 'inlineEditorShouldEndEditing', this, finalValue, evt)) return NO ; 
 
     // OK, we are allowed to end editing.  Notify delegate of final value
     // and clean up.
-    this.invokeDelegateMethod(del, 'inlineEditorDidEndEditing', this, finalValue) ;
+    this.invokeDelegateMethod(del, 'inlineEditorDidEndEditing', this, finalValue, evt) ;
 
     // If the delegate set a class name, let's clean it up:
     if(this._className) this.setClassName(this._className, false);
@@ -327,16 +332,22 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
   
   //keyUp: function() { return true; },
 
+  _scitf_blurInput: function() {
+    var el = this.$input()[0];
+    if (el) el.blur();
+    el = null;
+  },
+
   // [Safari] if you don't take key focus away from an element before you 
   // remove it from the DOM key events are no longer sent to the browser.
   /** @private */
   willRemoveFromParent: function() {
-    this.$input()[0].blur();
+    return this._scitf_blurInput();
   },
   
   // ask owner to end editing.
   /** @private */
-  willLoseFirstResponder: function(responder) {
+  willLoseFirstResponder: function(responder, evt) {
     if (responder !== this) return;
 
     // if we're about to lose first responder for any reason other than
@@ -344,12 +355,16 @@ SC.InlineTextFieldView = SC.TextFieldView.extend(SC.DelegateSupport,
     // isn't cached
     this._previousFirstResponder = null;
     
+    // store the original event that caused this to loose focus so that
+    // it can be passed to the delegate
+    this._origEvent = evt;
+    
     // should have been covered by willRemoveFromParent, but this was needed 
     // too.
-    this.$input()[0].blur();
-    return this.blurEditor() ;
+    this._scitf_blurInput();
+    return this.blurEditor(evt) ;
   },
-
+  
   /**
     invoked when the user presses escape.  Returns true to ignore keystroke
     

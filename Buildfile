@@ -12,7 +12,7 @@
 config :all, 
   :layout         => 'sproutcore:lib/index.rhtml',
   :test_layout    => 'sproutcore:lib/index.rhtml',
-  :test_required  => ['sproutcore/testing'],
+  :test_required  => ['sproutcore/testing', 'sproutcore/empty_theme'],
   :debug_required => ['sproutcore/debug', 'sproutcore/testing']
 
 # in debug mode, combine the JS for SC by default.  This will improve perf
@@ -30,12 +30,11 @@ config :bootstrap,  :required => [], :use_modules => false
 config :runtime,    :required => []
 config :foundation, :required => [:runtime]
 config :datastore,  :required => [:runtime]
+config :statechart, :required => [:runtime]
 
 # APP-LEVEL FRAMEWORKS
 %w(desktop mobile designer media).each do |app_framework|
-  config app_framework, 
-    :required => [:runtime, :datastore, :foundation],
-    :test_required => ["sproutcore/testing", :empty_theme]
+  config app_framework, :required => [:runtime, :datastore, :foundation]
 end
 
 config :mobile, 
@@ -46,8 +45,7 @@ config :mobile,
 config :designer, :required => [:runtime, :foundation]
 config :sproutcore, :required => :desktop
 config :mini, :required => [:runtime, :datastore]
-config :animation, :required => :foundation
-config :forms, :required => :desktop
+
 
 # SPECIAL FRAMEWORKS AND THEMES
 # These do not require any of the built-in SproutCore frameworks
@@ -74,31 +72,28 @@ config :standard_theme,
   :test_required  => ['sproutcore/testing'],
   :debug_required => ['sproutcore/debug']
 
-config :sc_ace, 
-  :required => :empty_theme, 
-  :theme_name => 'sc-theme',
-  :test_required  => ['sproutcore/testing'],
-  :debug_required => ['sproutcore/debug']
-
-
-# CONFIGURE DOCUMENTATION
-config :documentation,
-  :required => [:desktop, :animation]
-
 # CONFIGURE APPS
-config :core_tools, :required => [:desktop, :animation, :forms]
+
+config :core_tools, :required => [:desktop]
 
 # mode :debug do
 #   config :core_tools, :combine_javascript => false
 # end
 
-%w(tests test_controls docs welcome).each do |app_target|
+%w(tests docs welcome).each do |app_target|
   config app_target, 
-    :required => [:desktop, :core_tools],
-    :theme => :sc_ace
+    :required => [:desktop, :core_tools], 
+    :theme => :standard_theme
     
   # mode :debug do
   #   config app_target, :combine_javascript => false
   # end
   
 end
+
+config :greenhouse, 
+  :required => [:sproutcore, :'sproutcore/designer', :statechart],
+  :theme    => :standard_theme
+  
+
+ 

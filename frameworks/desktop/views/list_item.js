@@ -152,7 +152,7 @@ SC.ListItemView = SC.View.extend(
   disclosureState: SC.LEAF_NODE,
 
   /**
-    The validator to use ifor the inline text field created when the list item
+    The validator to use for the inline text field created when the list item
     is edited.
   */
   validator: null,
@@ -788,14 +788,6 @@ SC.ListItemView = SC.View.extend(
   discardEditing: function() {
    if (!this.get('isEditing')) return YES ;
    return SC.InlineTextFieldView.discardEditing();
-  },
-  
-  
-  /** @private
-    Allow editing.
-  */
-  inlineEditorShouldBeginEditing: function(inlineEditor) {
-    return YES ;
   },
   
   /** @private

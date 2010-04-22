@@ -194,7 +194,7 @@ SC.PickerPane = SC.PalettePane.extend({
         preferType   = this.get('preferType'),
         preferMatrix = this.get('preferMatrix'),
         layout       = this.get('layout'),
-        origin, maxHeight, minHeight;
+        origin;
     
     // usually an anchorElement will be passed.  The ideal position is just 
     // below the anchor + default or custom offset according to preferType.
@@ -227,24 +227,13 @@ SC.PickerPane = SC.PalettePane.extend({
         origin.y += origin.height ;
       }
       origin = this.fitPositionToScreen(origin, this.get('frame'), anchor) ;
-      if(!SC.none(layout.minHeight)) {
-        minHeight = this.layout.minHeight;
-      }
-      if(!SC.none(layout.maxHeight)) {
-        maxHeight = this.layout.maxHeight;
-      }
-      layout = { width: origin.width, height: origin.height, left: origin.x, top: origin.y };
-      if(!SC.none(minHeight)) {
-        layout.minHeight = minHeight;
-      }
-      if(!SC.none(maxHeight)) {
-        layout.maxHeight = maxHeight;
-      }
+
+      this.adjust({ width: origin.width, height: origin.height, left: origin.x, top: origin.y });
     // if no anchor view has been set for some reason, just center.
     } else {
-      layout = { width: layout.width, height: layout.height, centerX: 0, centerY: 0 };
+      this.adjust({ width: layout.width, height: layout.height, centerX: 0, centerY: 0 });
     }
-    this.set('layout', layout).updateLayout();
+    this.updateLayout();
     return this ;
   },
 
@@ -379,8 +368,8 @@ SC.PickerPane = SC.PalettePane.extend({
     // If the height of the menu is bigger than the window height, resize it.
     if( paneFrame.height+paneFrame.y+35 >= windowFrame.height){
       if (paneFrame.height+50 >= windowFrame.height) {
-        paneFrame.y = 15;
-        paneFrame.height = windowFrame.height - 50;
+        paneFrame.y = SC.MenuPane.VERTICAL_OFFSET;
+        paneFrame.height = windowFrame.height - (SC.MenuPane.VERTICAL_OFFSET*2);
       } else {
         paneFrame.y += (windowFrame.height - (paneFrame.height+paneFrame.y+35));
       }
@@ -466,6 +455,13 @@ SC.PickerPane = SC.PalettePane.extend({
         }
         f.x = prefP1[cM][0] - (parseInt(f.width/2,0)-this.get('extraRightOffset')) ;
         this.set('pointerPos', SC.POINTER_LAYOUT[cM]+' extra-right');
+        i = SC.POINTER_LAYOUT.length;
+      } else if ((cM === 2 || cM === 3) && cutoffPrefP[cM][0]===0 && cutoffPrefP[cM][1]===0 && cutoffPrefP[cM][2] ===0 && cutoffPrefP[cM][3]<= parseInt(f.width/2,0)-this.get('extraRightOffset')) {
+        if (m[4] !== cM) {
+          f.y = prefP1[cM][1] ;
+        }
+        f.x = prefP1[cM][0] + (parseInt(f.width/2,0)-this.get('extraRightOffset')) ;
+        this.set('pointerPos', SC.POINTER_LAYOUT[cM]+' extra-left');
         i = SC.POINTER_LAYOUT.length;
       }
     }
@@ -591,7 +587,7 @@ SC.PickerPane.SMALL_PICKER_MENU_POINTER_OFFSET = [9, -9, -8, 8];
 SC.PickerPane.SMALL_PICKER_MENU_EXTRA_RIGHT_OFFSET = 11;
 
 SC.PickerPane.REGULAR_PICKER_MENU_POINTER_OFFSET = [9, -9, -12, 12];
-SC.PickerPane.REGULAR_PICKER_MENU_EXTRA_RIGHT_OFFSET = 12;
+SC.PickerPane.REGULAR_PICKER_MENU_EXTRA_RIGHT_OFFSET = 13;
 
 SC.PickerPane.LARGE_PICKER_MENU_POINTER_OFFSET = [9, -9, -16, 16];
 SC.PickerPane.LARGE_PICKER_MENU_EXTRA_RIGHT_OFFSET = 17;

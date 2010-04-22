@@ -4,25 +4,39 @@
 // ==========================================================================
 /*globals SC */
 require('views/designer_drop_target');
-
+require('views/page_item_view');
 SC.designPage = SC.Page.create({
   // ..........................................................
   // Views used inside iframe...
   // 
   designMainPane: SC.MainPane.design({
-    childViews: 'container viewList'.w(),
+    classNames: ['workspace'],
+    childViews: 'rotated container viewList'.w(),
     
     container: SC.DesignerDropTarget.design({
-      layout: {top: 10, left: 10, right: 10, bottom: 60},
-      contentViewBinding:'SC.designController.view'
+      layout: {top: 20, left: 20, right: 20, bottom: 83},
+      classNames: ['design'],
+      contentViewBinding: SC.Binding.transform(function(value, binding){
+        return value && value.kindOf && value.kindOf(SC.View) ? value : null;
+      }).from('SC.designController.view')
+    }),
+    
+    rotated: SC.View.design({
+      layout: {top: 20, left: 20, right: 20, bottom: 83},
+      classNames: ['rotated-page']
     }),
     
     viewList: SC.ScrollView.design({
-      layout: {left:0, right: 0, bottom: 0, height: 48},
+      layout: {left:0, right: 0, bottom: 0, height: 63},
+      classNames: ['dock'],
+      hasBorder: NO,
       hasVerticalScroller: NO,
       contentView: SC.GridView.design({
-        rowHeight: 48,
-        columnWidth: 48,
+        contentIconKey: 'type',
+        exampleView: SC.pageItemView,
+        rowHeight: 63,
+        columnWidth: 100,
+        hasContentIcon: YES,
         //contentBinding: 'SC.designsController',
         delegate: SC.designsController,
         selectionBinding: 'SC.designsController.selection',

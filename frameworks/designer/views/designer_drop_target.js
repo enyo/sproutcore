@@ -6,13 +6,14 @@
 /*jslint evil: true*/
 /** 
   @class
+  This View is used by Greenhouse when application is in design mode
+  
   
   @extends SC.ContainerView
 */
 SC.DesignerDropTarget = SC.ContainerView.extend(
   /** @scope SC.DesignerDropTarget.prototype */ {
   
-  backgroundColor: 'white',
   // ..........................................................
   // Key Events
   // 
@@ -80,7 +81,9 @@ SC.DesignerDropTarget = SC.ContainerView.extend(
   
 
   acceptDragOperation: function(drag, op) { 
-    return YES;
+    var data = drag.dataForType('SC.Object'),
+        scClass = eval(data.get('scClass'));
+    return scClass.kindOf(SC.View);
   },
   
   /**
@@ -100,11 +103,12 @@ SC.DesignerDropTarget = SC.ContainerView.extend(
     @return {DragOp} Drag Operation actually performed
   */
   performDragOperation: function(drag, op) {
-    var data = drag.dataForType('SC.View'),
+    var data = drag.dataForType('SC.Object'),
         cv = this.get('contentView'),
         loc = drag.get('location'),
         frame = drag.iframeFrame,
         design, size, newView, defaults, layout;
+    var page = cv.get('page');
     //size and location
     size = data.get('size');
     loc.x = loc.x - frame.x;
@@ -116,9 +120,9 @@ SC.DesignerDropTarget = SC.ContainerView.extend(
     layout = SC.merge(layout, {top: loc.y, left: loc.x});
     defaults.layout = layout;
     design = design.design(defaults);
-    newView = design.create({page: cv.get('page')});
+    newView = design.create({page: page});
     if(cv && newView) cv.appendChild(newView);
-    
+    page.get('designController').select(newView.get('designer'));
     return SC.DRAG_ANY; 
   }
   

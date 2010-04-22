@@ -18,6 +18,8 @@ function evaluatePicker(pane) {
   ok(pane.childViews[0].$().hasClass('sc-view'), 'pane.div should have sc-view class');
   equals(pane.$('.sc-empty').length, 1, 'pane should have only one content view');
   
+  equals(pane.$('.sc-view').length, 1, 'pane should have only one content view');
+  
   var ret = pane.layoutStyle();
 
   equals(ret.width, '300px', 'pane should have width 300px');

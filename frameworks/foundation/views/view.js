@@ -86,13 +86,6 @@ SC.CONTEXT_MENU_ENABLED = YES;
 */
 SC.TABBING_ONLY_INSIDE_DOCUMENT = YES;
 
-/**
-  This will enable touch events to be routed into mouse events. 
-  It is enabled by default.
-*/
-SC.ROUTE_TOUCH = NO;
-
-
 /** @private - custom array used for child views */
 SC.EMPTY_CHILD_VIEWS_ARRAY = [];
 SC.EMPTY_CHILD_VIEWS_ARRAY.needsClone = YES;
@@ -198,8 +191,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   backgroundColor: null,
   
-  routeTouch: YES,
-  
   /**
     Activates use of brower's static layout.  You can apply this mixin and
     still use absolute positioning.  To activate static positioning, set this
@@ -244,10 +235,12 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   }.property('parentView', 'isEnabled'),
   
   /**
+    @private
+    
     Observer that resigns firstResponder if the view is Disabled and is first
     responder. This will avoid cases like disabled view with focus rings.
   */
-  isEnabledObserver: function(){
+  _scv_isEnabledDidChange: function(){
     if(!this.get('isEnabled') && this.get('isFirstResponder')){
       this.resignFirstResponder();
     } 
@@ -978,9 +971,24 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     bgcolor = this.get('backgroundColor');
     if (bgcolor) context.addStyle('backgroundColor', bgcolor);
   
-    cursor = this.get('cursor') ;
-    if (cursor) context.addClass(cursor.get('className')) ;
-  
+    // Sets cursor class, if present.
+    cursor = this.get('cursor');
+    if (!cursor && this.get('shouldInheritCursor')) {
+      // If this view has no cursor and should inherit it from the parent, 
+      // then it sets its own cursor view.  This sets the cursor rather than 
+      // simply using the parent's cursor object so that its cursorless 
+      // childViews can also inherit it.
+      cursor = this.getPath('parentView.cursor');
+    }
+
+    if (SC.typeOf(cursor) === SC.T_STRING) {
+      cursor = SC.objectForPropertyPath(cursor);
+    }
+    
+    if (cursor instanceof SC.Cursor) {
+      context.addClass(cursor.get('className'));
+    }
+    
     this.beginPropertyChanges() ;
     this.set('layerNeedsUpdate', NO) ;
     this.render(context, firstTime) ;
@@ -1045,7 +1053,9 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   
   _notifyDidAppendToDocument: function() {
-    if(this.didAppendToDocument) this.didAppendToDocument();
+    if (this.didAppendToDocument) this.didAppendToDocument();
+    if (this.useStaticLayout) this.notifyPropertyChange('frame');
+    
     var i=0, child, childLen, children = this.get('childViews');
     for(i=0, childLen=children.length; i<childLen; i++) {
       child = children[i];
@@ -1108,14 +1118,26 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   displayProperties: ['isFirstResponder', 'isVisible'],
   
   /**
-    You can set this to an SC.Cursor instance; it's className will 
-    automatically be added to the layer's classNames. The cursor is only used 
-    when a layer is first created.  If you change the cursor for an element, 
-    you must destroy and recreate the view layer.
+    You can set this to an SC.Cursor instance; its class name will 
+    automatically be added to the layer's classNames, allowing you
+    to efficiently change the cursor for a large group of views with
+    just one change to the SC.Cursor object.  The cursor property
+    is only used when the layer is created, so if you need to change
+    it to a different cursor object, you will have to destroy and
+    recreate the view layer.  (In this case you might investigate
+    setting cursors using CSS directly instead of SC.Cursor.)
     
-    @property {SC.Cursor}
+    @property {SC.Cursor String}
   */
   cursor: null,
+  
+  /**
+    A child view without a cursor of its own inherits its parent's cursor by
+    default.  Set this to NO to prevent this behavior.
+    
+    @property {Boolean}
+  */
+  shouldInheritCursor: YES,
   
   // ..........................................................
   // LAYER LOCATION
@@ -1486,26 +1508,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     
     // register scroll views for autoscroll during drags
     if (this.get('isScrollable')) SC.Drag.addScrollableView(this) ;
-    
-    if(SC.ROUTE_TOUCH && this.get('routeTouch')) this.routeTouchEvents();
-  },
-  
-  routeTouchEvents: function(){
-    if(!this.respondsTo('touchStart') && this.respondsTo('mouseDown')) {
-      this.touchStart=this.mouseDown;
-    }
-    if(!this.respondsTo('touchEnd') && this.respondsTo('mouseUp')) {
-      this.touchEnd=this.mouseUp;
-    }
-    if(!this.respondsTo('touchMoved') && this.respondsTo('mouseMove')) {
-      this.touchMoved=this.mouseMoved;
-    }
-    if(!this.respondsTo('touchEntered') && this.respondsTo('mouseEntered')) {
-      this.touchEntered=this.mouseEntered;
-    }
-    if(!this.respondsTo('touchExited') && this.respondsTo('mouseExited')) {
-      this.touchExited=this.mouseExited;
-    }
   },
   
   /**
@@ -1765,10 +1767,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   convertFrameToView: function(frame, targetView) {
     var myX=0, myY=0, targetX=0, targetY=0, view = this, f ;
     
-    if (this.get('useStaticLayout')) {
-      throw "convertFrameToView is not available with static layout";
-    }
-    
     // walk up this side
     while (view) {
       f = view.get('frame'); myX += f.x; myY += f.y ;
@@ -1810,10 +1808,6 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
   */
   convertFrameFromView: function(frame, targetView) {
     var myX=0, myY=0, targetX=0, targetY=0, view = this, f ;
-    
-    if (this.get('useStaticLayout')) {
-      throw "convertFrameToView is not available with static layout";
-    }
     
     // walk up this side
     while (view && view.get('frame')) {
@@ -1920,6 +1914,8 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
       // need layer to be able to compute rect
       if (layer = this.get('layer')) {
         f = SC.viewportOffset(layer); // x,y
+        if (pv) f = pv.convertFrameFromView(f, null);
+        
         /*
           TODO Can probably have some better width/height values - CC
         */
@@ -2112,16 +2108,21 @@ SC.View = SC.Responder.extend(SC.DelegateSupport,
     @property {Rect}
   */
   clippingFrame: function() {
-    var pv= this.get('parentView'), f = this.get('frame'), ret = f, cf ;
+    var f = this.get('frame'),
+        ret = f,
+        pv, cf;
+    
+    if (!f) return null;
+    pv = this.get('parentView');
     if (pv) {
       cf = pv.get('contentClippingFrame');
+      if (!cf) return f;
       ret = SC.intersectRects(cf, f);
-    }
-
-    ret.x -= f.x ;
-    ret.y -= f.y ;
-
-    return ret ;
+    } 
+    ret.x -= f.x;
+    ret.y -= f.y;
+    
+    return ret;
   }.property('parentView', 'frame').cacheable(),
   
   /**

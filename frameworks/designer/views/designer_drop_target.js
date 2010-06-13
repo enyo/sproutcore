@@ -109,10 +109,14 @@ SC.DesignerDropTarget = SC.ContainerView.extend(
         frame = drag.iframeFrame,
         design, size, newView, defaults, layout;
     var page = cv.get('page');
+    var designController = page.get('designController'),
+        rootDesigner = designController.get('rootDesigner');
+    var rootDesignerFrame = rootDesigner.get('frame');
+    //TODO: [MB] should we move most of this into the designer's addView?
     //size and location
     size = data.get('size');
-    loc.x = loc.x - frame.x;
-    loc.y = loc.y - frame.y;
+    loc.x = loc.x - frame.x - rootDesignerFrame.x;
+    loc.y = loc.y - frame.y - rootDesignerFrame.y;
     //setup design (use eval to make sure code comes from iframe)
     design = eval(data.get('scClass'));
     defaults = data.get('defaults') || {};
@@ -120,8 +124,12 @@ SC.DesignerDropTarget = SC.ContainerView.extend(
     layout = SC.merge(layout, {top: loc.y, left: loc.x});
     defaults.layout = layout;
     design = design.design(defaults);
+    //drop it in the root designer
     newView = design.create({page: page});
-    if(cv && newView) cv.appendChild(newView);
+    if(rootDesigner && newView){
+      rootDesigner.addView(newView);
+      //cv.appendChild(newView);
+    }
     page.get('designController').select(newView.get('designer'));
     return SC.DRAG_ANY; 
   }

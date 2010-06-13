@@ -610,6 +610,7 @@ SC.CollectionView = SC.View.extend(
   */
   contentRangeDidChange: function(content, object, key, indexes) {
     if (!object && (key === '[]')) {
+      this.notifyPropertyChange('_contentGroupIndexes');
       this.reload(indexes); // note: if indexes == null, reloads all
     } else {
       this.contentPropertyDidChange(object, key, indexes);
@@ -816,7 +817,7 @@ SC.CollectionView = SC.View.extend(
         nowShowing = this.get('nowShowing'),
         itemViews  = this._sc_itemViews,
         containerView = this.get('containerView') || this,
-        exampleView, exampleGroupView,
+        exampleView, groupExampleView,
         shouldReuseViews, shouldReuseGroupViews, shouldReuse,
         viewsToRemove, viewsToRedraw, viewsToCreate,
         views, idx, view, layer, parentNode, viewPool,
@@ -834,8 +835,8 @@ SC.CollectionView = SC.View.extend(
     // new ones, because that will maximize the potential for re-use.
     exampleView = this.get('exampleView');
     shouldReuseViews = exampleView ? exampleView.isReusableInCollections : NO;
-    exampleGroupView = this.get('exampleGroupView');
-    shouldReuseGroupViews = exampleGroupView ? exampleGroupView.isReusableInCollections : NO;
+    groupExampleView = this.get('groupExampleView');
+    shouldReuseGroupViews = groupExampleView ? groupExampleView.isReusableInCollections : NO;
 
     // if an index set, just update indexes
     if (invalid.isIndexSet) {
@@ -995,8 +996,6 @@ SC.CollectionView = SC.View.extend(
     child views still need to be added, go ahead and add them.
   */
   render: function(context, firstTime) {
-    if (firstTime && this._needsReload) this.reloadIfNeeded() ;
-    
     // add classes for other state.
     context.setClass('focus', this.get('isFirstResponder'));
     context.setClass('disabled', !this.get('isEnabled'));
@@ -2155,7 +2154,7 @@ SC.CollectionView = SC.View.extend(
       // determine if item is selected. If so, then go on.
       sel = this.get('selection') ;
       contentIndex = (view) ? view.get('contentIndex') : -1 ;
-      isSelected = sel && sel.include(contentIndex) ;
+      isSelected = sel && sel.contains(contentIndex) ;
 
       if (isSelected) this.deselect(contentIndex) ;
       else this.select(contentIndex, YES) ;

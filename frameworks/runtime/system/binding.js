@@ -459,7 +459,7 @@ SC.Binding = {
     
     // if the new value is different from the current binding value, then 
     // schedule to register an update.
-    if (v !== this._bindingValue || key === '[]') {
+    if (v !== this._bindingValue || key === '[]') {
 
       this._setBindingValue(target, key) ;
       this._changePending = YES ;
@@ -650,7 +650,7 @@ SC.Binding = {
 
       // if the new value is different from the current binding value, then 
       // schedule to register an update.
-      if (v !== this._bindingValue || key === '[]') {
+      if (v !== this._bindingValue || key === '[]') {
         this._setBindingValue(target, key) ;
         this._changePending = YES ;
         SC.Binding._changeQueue.add(this) ; // save for later.  
@@ -906,7 +906,7 @@ SC.Binding = {
     something is selected in a list and whether the current user is allowed to delete:
     
       deleteButton: SC.ButtonView.design({
-        isEnabledBinding: SC.Binding.logicalAnd('MyApp.itemsController.hasSelection', 'MyApp.userController.canDelete')
+        isEnabledBinding: SC.Binding.and('MyApp.itemsController.hasSelection', 'MyApp.userController.canDelete')
       })
 
   */

@@ -2542,7 +2542,10 @@ SC.Store.mixin({
       // then the other...
       storeKeys = recordType.storeKeysById() ;
       delete storeKeys[oldId];
-      storeKeys[newId] = storeKey;     
+      storeKeys[newId] = storeKey;
+
+      // then notify the object that its id changed.
+      SC.Store.materializeRecord(storeKey).notifyPropertyChange('id');
     }
     
     return this ;

@@ -237,6 +237,10 @@ SC.Renderer = {
          if (this[key] === value) return this; // nothing to do
          this[key] = value;
        } else {
+         // make sure every previous class will be removed
+         for (i in this.classNames) {
+           this.classNames[i] = NO;
+         }
          // need to put classNames array elements from view into our classNames hash
          l = value.length;
          for (i=0; i<l; i++) {
@@ -257,6 +261,10 @@ SC.Renderer = {
             didChange = YES;
           }
         } else {
+          // make sure every previous class will be removed
+          for (i in this.classNames) {
+            this.classNames[i] = NO;
+          }
           l = value.length;
           for (i=0; i<l; i++) {
             this.classNames[value[i]] = YES;

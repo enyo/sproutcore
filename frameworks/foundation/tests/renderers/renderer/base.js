@@ -168,3 +168,18 @@ test("didChange and resetChanges work as expected", function() {
   renderer.attr("foo", "test2");
   ok(renderer.didChange("foo"), "we now really did change it.");
 });
+
+
+test("previous classNames get removed when new ones are set", function() {
+  var renderer = testRenderer();
+
+  renderer.attr({ classNames: [ 'one', 'two', 'three' ] });
+
+  same(renderer.classNames, { one: YES, two: YES, three: YES }, 'all classes should have been set.');
+
+  // Now set different ones:
+  renderer.attr({ classNames: [ 'three', 'four', 'five' ] });
+
+  same(renderer.classNames, { one: NO, two: NO, three: YES, four: YES, five: YES }, 'the old classes should have been set to NO, and the new ones to YES.');
+
+});
